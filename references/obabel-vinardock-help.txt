@@ -1,0 +1,46 @@
+Open Babel converts chemical structures from one file format to another
+
+Usage: 
+obabel-vinardock[-i<input-type>] <infilename> [-o<output-type>] -O<outfilename> [Options]
+The extension of a file decides the format, unless it is overridden
+ by -i or -o options, e.g. -icml, or -o smi
+See below for available format-types, which are the same as the 
+file extensions and are case independent.
+If no input or output file is given stdin or stdout are used instead.
+
+More than one input file can be specified and their names can contain
+wildcard chars (* and ?). The format of each file can be different unless
+the -i option has been used, when they are all the same.
+By default, the molecules are aggregated in the output file,
+ but see -m option, Splitting, below.
+
+Options, other than -i -o -O -m, must come after the input files.
+
+Conversion options
+-f <#> Start import at molecule # specified
+-l <#> End import at molecule # specified
+-e Continue with next object after error, if possible
+-z Compress the output with gzip
+-zin Decompress the input with gzip
+-k Attempt to translate keywords
+-H Outputs this help text
+-Hxxx (xxx is file format ID e.g. -Hcml) gives format info
+-Hall Outputs details of all formats
+-V Outputs version number
+-L <category> Lists plugin classes of this category, e.g. <formats>
+   Use just -L for a list of plugin categories.
+   Use -L <ID> e.g. -L sdf for details of a format or other plugin.
+-m Produces multiple output files, to allow:
+    Splitting: e.g.        obabel-vinardock infile.mol -O new.smi -m
+      puts each molecule into new1.smi new2.smi etc
+    Batch conversion: e.g. obabel-vinardock *.mol -osmi -m
+      converts each input file to a .smi file
+Interface to OBAPI internals
+API options, e.g. ---errorlevel 2
+ errorlevel # min warning level displayed
+
+To see a list of recognized file formats use
+  obabel -L formats [read] [write]
+To see details and specific options for a particular format, e.g CML, use
+  obabel -L cml
+

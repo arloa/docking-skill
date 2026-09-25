@@ -1,0 +1,3 @@
+# PLIP XML fields
+
+PLIP report XML contains `bindingsite` elements (usually under `bindingsites`). Match each binding site to the prepared ligand residue and chain; never silently select a cofactor or an unrelated HETATM site. Inside the selected binding site, `interactions` contains lists named `hydrophobic_interactions`, `hydrogen_bonds`, `salt_bridges`, `pi_stacks`, `pi_cation_interactions`, `halogen_bonds`, `water_bridges`, and `metal_complexes`. Each list contains child interaction elements whose `resnr`, `restype`, and `reschain` identify the contacting residue. A missing interaction list means zero interactions, not an error. Zero binding sites, a missing target site, or malformed XML is an analysis failure.

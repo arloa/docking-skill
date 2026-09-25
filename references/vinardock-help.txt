@@ -1,0 +1,209 @@
+2Vinardo molecular docking program
+Usage:
+  2Vinardo [OPTION...]
+
+ Input options:
+      --receptor arg        receptor in PDBT format
+      --ligand arg          ligand or folder of ligands in PDBT format
+      --center_x arg        x coordinate of the search space center
+      --center_y arg        y coordinate of the search space center
+      --center_z arg        z coordinate of the search space center
+      --size_x arg          size in the x dimension in Angstrom
+      --size_y arg          size in the y dimension in Angstrom
+      --size_z arg          size in the z dimension in Angstrom
+      --autobox arg         auto-compute search box from --autobox_ligand bounding box plus this extension per side in Angstrom (e.g. --autobox 10 adds 10 A padding on each side; skips --center/--size) (default: -1.000000)
+      --autobox_ligand arg  reference ligand for --autobox box computation (required with --autobox)
+      --config arg          configuration file with options
+      --help                Print help
+
+ Output options:
+      --out arg  folder for output predicted conformations in PDBT format (default: .)
+
+ Flexible Docking options:
+      --flexres.res arg         flexible receptor residue(s) in chain:OLDresNEW format, comma-separated (e.g., A:S63S for flexibility, A:S63T for mutation) (default: "")
+      --flexres.autoflex arg    auto-select flexible residues with CB-to-ligand cutoff in Angstrom (e.g., --flexres.autoflex 7.0; mutually exclusive with --flexres.res) (default: -1.000000)
+      --flexres.autoflex_max arg
+                                soft limit on auto-selected flexible residues (default 12) (default: 12)
+      --flexres.autoflex_min_contacts arg
+                                minimum sidechain heavy atom contacts within cutoff for autoflex selection (default 3) (default: 3)
+      --rotamer_lib arg         fs::path to Dunbrack 2010 backbone-dependent rotamer library (dun2010bbdep.bin) (default: flexres/dun2010bbdep.bin)
+
+ Core Parameters options:
+      --seed arg           explicit non-negative random seed for reproducibility (default: <timestamp>)
+      --threads arg        worker threads: multi-ligand rigid VS parallelizes across ligands (inner swarm serial); single ligand or ligands < threads uses inner per-particle parallelism (default: 4)
+      --conformations arg  maximum number of binding conformations to write to output (default: 9)
+      --granularity arg    density of probe atoms of grid maps (smaller values increase accuracy but use more memory) (default: 0.300000)
+      --cut_rmsd arg       RMSD threshold value for clustering similar conformations (default: 2.000000)
+      --verbose arg        Comma-separated debug channels: flex, swarm_stats, swarm_pdb_write, all (or VINARDOCK_VERBOSE) (default: "")
+
+ Program Control Flags options:
+      --score_only              Score without docking (evaluate existing poses only)
+      --minimize                Perform local minimization without global docking
+      --generate_initial        Generate initial conformations only without optimization
+      --test_torsion_dof        Test torsion degree of freedom by generating 9 conformers
+      --test_rotation           Test rotation DOF: 6 conformers with stepped Z-axis orientations
+      --interpolation arg       Grid interpolation: tricubic (default, exact ∇E), trilinear (exact ∇E), or nearest_point (central-diff ∇, not true ∇E — coarse search only, not valid for --minimize) (default: tricubic)
+      --vsmode                  Apply virtual-screening-optimized swarm defaults (overridden by explicit --swarm.* args)
+      --docking_mode arg        Global search: pso_mc (default), pso_only, or mc_only (default: pso_mc)
+      --calc_lig_rmsd           Calculate RMSD between initial and final ligand coordinates
+      --calc_mutate_dG          With a single --flexres.res mutation, dock WT and mutant separately and report dG = E_mut - E_wt
+      --gradcheck               Run finite-difference gradient check on one conformation and exit
+      --relax_neighbours        With --calc_mutate_dG: include CB neighbours (within 5A) as flexible in PSO; reported E_WT/E_MUT/dG use mutation-site focused energy
+      --no_lig                  Dock/score without a ligand (dummy ligand): with --calc_mutate_dG mutation dG; otherwise optimize flexible residue(s) only (requires --flexres.res)
+      --correct_for_reference_state
+                                Correct binding energy by subtracting ligand-in-water reference state energy (rigid docking; flex auto-corrects)
+      --no_receptor             Skip receptor processing and grid maps; optimize ligand internal energy only (writes ligand_in_water.pdbt)
+
+ Min Parameters options:
+      --min.e_upper_bound_per_unit arg
+                                Per-unit energy cap (kcal/mol); threshold = per_unit * num_heavy_atoms, or * flexres.res count with --no_lig (default: 10.000000)
+      --bfgs.iterations arg     Maximum BFGS iterations per minimization (default: 50)
+      --bfgs.num_alphas arg     Number of alpha trials in BFGS line search (default: 10)
+      --bfgs.alpha_factor arg   Factor to reduce alpha in BFGS line search (default: 0.400000)
+      --bfgs.pg_factor arg      Wolfe curvature (c₂) factor in BFGS line search (default: 0.900000)
+      --bfgs.grad_tol arg       Gradient tolerance for BFGS convergence (default: 0.001000)
+      --bfgs.energy_delta_stop arg
+                                Energy improvement threshold for early BFGS exit (default: 0.050000)
+      --bfgs.armijo_c1 arg      Armijo constant for BFGS line search (default: 0.001000)
+      --bfgs.damping_sigma arg  Damping sigma for BFGS inverse Hessian update (default: 0.200000)
+
+ Swarm search parameters options:
+      --swarm.particles_start arg
+                                Starting number of particles in PSO (default: 50)
+      --swarm.particles_end arg
+                                Ending number of particles in PSO (default: 20)
+      --swarm.pso_social_guides.guide2_threshold_start arg
+                                Starting Cartesian RMSD threshold for social guide 2 vs guide 1 (Angstroms) (default: 3.000000)
+      --swarm.pso_social_guides.guide2_threshold_end arg
+                                Ending Cartesian RMSD threshold for social guide 2 vs guide 1 (Angstroms) (default: 1.500000)
+      --swarm.pso_social_guides.guide3_threshold_start arg
+                                Starting Cartesian RMSD threshold for social guide 3 vs guides 1 and 2 (Angstroms) (default: 5.000000)
+      --swarm.pso_social_guides.guide3_threshold_end arg
+                                Ending Cartesian RMSD threshold for social guide 3 vs guides 1 and 2 (Angstroms) (default: 1.500000)
+      --swarm.pso_cap_velocities.position_factor_start arg
+                                Starting velocity cap factor for position updates in PSO (Angstroms) (default: 8.000000)
+      --swarm.pso_cap_velocities.position_factor_end arg
+                                Ending velocity cap factor for position updates in PSO (Angstroms) (default: 4.000000)
+      --swarm.pso_cap_velocities.orientation_factor_start arg
+                                Starting velocity cap factor for orientation updates in PSO (radians) (default: 0.700000)
+      --swarm.pso_cap_velocities.orientation_factor_end arg
+                                Ending velocity cap factor for orientation updates in PSO (radians) (default: 0.200000)
+      --swarm.pso_cap_velocities.torsion_factor_start arg
+                                Starting velocity cap factor for torsion updates in PSO (radians) (default: 0.700000)
+      --swarm.pso_cap_velocities.torsion_factor_end arg
+                                Ending velocity cap factor for torsion updates in PSO (radians) (default: 0.200000)
+      --swarm.min.iterations_start arg
+                                Starting BFGS iterations after swarm steps (default: 50)
+      --swarm.min.iterations_end arg
+                                Ending BFGS iterations after swarm steps (default: 50)
+      --swarm.min.probability_start arg
+                                Starting BFGS probability after swarm steps (default: 1.000000)
+      --swarm.min.probability_end arg
+                                Ending BFGS probability after swarm steps (default: 1.000000)
+      --swarm.min.grad_tol_start arg
+                                Starting gradient tolerance after swarm steps (default: 0.010000)
+      --swarm.min.grad_tol_end arg
+                                Ending gradient tolerance after swarm steps (default: 0.001000)
+      --swarm.min.num_alphas_start arg
+                                Starting BFGS line-search alpha trials after swarm steps (default: 10)
+      --swarm.min.num_alphas_end arg
+                                Ending BFGS line-search alpha trials after swarm steps (default: 10)
+      --swarm.min.bfgs_pg_factor_start arg
+                                Starting BFGS line-search curvature (Wolfe c2) factor after swarm steps (default: 0.900000)
+      --swarm.min.bfgs_pg_factor_end arg
+                                Ending BFGS line-search curvature (Wolfe c2) factor after swarm steps (default: 0.900000)
+      --swarm.temp_start arg    Starting Metropolis temperature for MC steps (default: 0.800000)
+      --swarm.temp_end arg      Ending Metropolis temperature for MC steps (default: 0.300000)
+      --swarm.mc.position_scale_start arg
+                                Starting position perturbation scale for MC steps (default: 3.000000)
+      --swarm.mc.position_scale_end arg
+                                Ending position perturbation scale for MC steps (default: 1.000000)
+      --swarm.mc.rotation_scale_start arg
+                                Starting rotation perturbation scale for MC steps (default: 1.000000)
+      --swarm.mc.rotation_scale_end arg
+                                Ending rotation perturbation scale for MC steps (default: 0.300000)
+      --swarm.mc.torsion_scale_start arg
+                                Starting torsion perturbation scale for MC steps (default: 1.000000)
+      --swarm.mc.torsion_scale_end arg
+                                Ending torsion perturbation scale for MC steps (default: 0.300000)
+      --swarm.mc.max_mutation_entities_start arg
+                                Starting max DOFs to mutate per MC step (default: 1)
+      --swarm.mc.max_mutation_entities_end arg
+                                Ending max DOFs to mutate per MC step (default: 1)
+      --swarm.pso_inertia.position_start arg
+                                Starting inertia weight for positions in PSO (default: 1.000000)
+      --swarm.pso_inertia.position_end arg
+                                Ending inertia weight for positions in PSO (default: 0.100000)
+      --swarm.pso_inertia.orientation_start arg
+                                Starting inertia weight for orientation in PSO (default: 0.500000)
+      --swarm.pso_inertia.orientation_end arg
+                                Ending inertia weight for orientation in PSO (default: 0.100000)
+      --swarm.pso_inertia.torsions_start arg
+                                Starting inertia weight for torsions in PSO (default: 0.500000)
+      --swarm.pso_inertia.torsions_end arg
+                                Ending inertia weight for torsions in PSO (default: 0.100000)
+      --swarm.pso_cognitive.personal_start arg
+                                Starting personal cognitive coefficient in PSO (default: 0.800000)
+      --swarm.pso_cognitive.personal_end arg
+                                Ending personal cognitive coefficient in PSO (default: 0.300000)
+      --swarm.pso_cognitive.social_start arg
+                                Starting social cognitive coefficient in PSO (default: 0.300000)
+      --swarm.pso_cognitive.social_end arg
+                                Ending social cognitive coefficient in PSO (default: 1.200000)
+      --swarm.max_iterations arg
+                                Number of iterations in PSO (default: 200)
+      --swarm.pso_social_guides.guide1_probability arg
+                                Probability of selecting social guide 1 (global best) in PSO (0.0-1.0) (default: 0.650000)
+      --swarm.pso_social_guides.guide2_probability arg
+                                Probability of selecting social guide 2 in PSO; remainder goes to guide 3 (0.0-1.0) (default: 0.250000)
+      --swarm.trigger_mc_when arg
+                                Trigger MC fallback when previous iteration PSO acceptance fraction is below this value (0.0-1.0) (default: 0.300000)
+      --swarm.pso_termination.max_energy_stagned_iters arg
+                                Maximum number of iterations the energy can stagnate before termination (default: 60)
+      --swarm.pso_termination.min_iters_before_stop arg
+                                Minimum number of iterations guaranteed before energy stagnation termination (default: 150)
+      --swarm.pso_termination.energy_delta_threshold arg
+                                Energy improvement threshold to detect energy stagnation (default: 0.010000)
+      --swarm.pso_termination.counter_decay arg
+                                RMSD stagnation counter decay when spread widens (default: 1)
+      --swarm.pso_termination.num_best_particles_for_spread arg
+                                Top particles used for Cartesian RMSD spread (default: 3)
+      --swarm.use_init_plus     Use grid-based particle initialization (init+) instead of simple random initialization (default: 0)
+      --swarm.extend_pso arg    Extra swarm iterations with tricubic after coarse-mode (vsmode/trilinear) search ends (default: 5)
+      --swarm.pso_termination.rmsd_threshold_0 arg
+                                RMSD spread threshold tier 0 (Ang) for early stop (default: 0.500000)
+      --swarm.pso_termination.min_energy_count_0 arg
+                                Min stagnation iterations (energy) tier 0 (default: 15)
+      --swarm.pso_termination.min_rmsd_count_0 arg
+                                Min stagnation iterations (RMSD) tier 0 (default: 15)
+      --swarm.pso_termination.rmsd_threshold_1 arg
+                                RMSD spread threshold tier 1 (Ang) for early stop (default: 1.000000)
+      --swarm.pso_termination.min_energy_count_1 arg
+                                Min stagnation iterations (energy) tier 1 (default: 20)
+      --swarm.pso_termination.min_rmsd_count_1 arg
+                                Min stagnation iterations (RMSD) tier 1 (default: 20)
+      --swarm.pso_termination.rmsd_threshold_2 arg
+                                RMSD spread threshold tier 2 (Ang) for early stop (default: 1.500000)
+      --swarm.pso_termination.min_energy_count_2 arg
+                                Min stagnation iterations (energy) tier 2 (default: 30)
+      --swarm.pso_termination.min_rmsd_count_2 arg
+                                Min stagnation iterations (RMSD) tier 2 (default: 30)
+
+ Scoring Function Parameters options:
+      --scoring arg             scoring model name (2vinardo, 2vinardo_atom) (default: 2vinardo)
+      --scoring.table arg       parameter table file for scoring function (default: "")
+      --scoring.tableTxT arg    parameter TxT table file for scoring function (default: "")
+      --scoring.wRP arg         Repulsion weight in scoring function (default: 3.499000)
+      --scoring.sRP arg         Repulsion sigma in scoring function (default: 1.759000)
+      --scoring.sSR arg         Short range sigma in scoring function (default: 0.603000)
+      --scoring.sLR arg         Long range sigma in scoring function (default: 1.601000)
+      --scoring.sHB arg         Hydrogen bond sigma in scoring function (default: 0.390000)
+      --scoring.gHB arg         Hydrogen bond good parameter in scoring function (default: 0.776000)
+      --scoring.scale_intra arg
+                                Scale factor for intramolecular non-1-4 interactions (default: 0.414000)
+      --scoring.scale_intra_14 arg
+                                Scale factor for intramolecular 1-4 interactions (default: 0.189000)
+      --scoring.scale_tors arg  Scale factor for torsion energy penalty (default: 0.039000)
+      --scoring.scale_nhvy arg  Scale factor for heavy atom count penalty (default: 0.000000)
+      --scoring.scale_prot_prot arg
+                                Scale factor for protein-protein (flex_fix + flex_flex) interactions in binding energy (default: 0.500000)

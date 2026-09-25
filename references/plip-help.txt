@@ -1,0 +1,69 @@
+usage: PLIP [-h] (-f INPUT [INPUT ...] | -i PDBID [PDBID ...])
+            [-o OUTPATH | -O] [--rawstring] [-v] [-q] [-s] [-p] [-x] [-t] [-z]
+            [--name OUTPUTFILENAME] [-y] [--maxthreads MAXTHREADS]
+            [--breakcomposite] [--altlocation] [--nofix] [--nofixfile]
+            [--nopdbcanmap] [--dnareceptor]
+            [--peptides PEPTIDES [PEPTIDES ...]] [--intra INTRA] [--keepmod]
+            [--nohydro] [--model MODEL] [--chains CHAINS] [--regions REGIONS]
+
+The Protein-Ligand Interaction Profiler (PLIP) Version 3.0.1 is a command-line
+based tool to analyze interactions in a protein-ligand complex. If you are
+using PLIP in your work, please cite: Schake,P. Bolz,SN. et al. PLIP 2025:
+introducing protein–protein interactions to the protein–ligand interaction
+profiler. Nucl. Acids Res. (10 May 2025), gkaf361. doi: 10.1093/nar/gkaf361
+Supported and maintained by: PharmAI GmbH (2020-2021) - www.pharm.ai -
+hello@pharm.ai
+
+options:
+  -h, --help            show this help message and exit
+  -f INPUT [INPUT ...], --file INPUT [INPUT ...]
+                        Set input file, '-' reads from stdin
+  -i PDBID [PDBID ...], --input PDBID [PDBID ...]
+  -o OUTPATH, --out OUTPATH
+  -O, --stdout          Write to stdout instead of file
+  --rawstring           Use Python raw strings for stdin
+  -v, --verbose         Turn on verbose mode
+  -q, --quiet           Turn on quiet mode
+  -s, --silent          Turn on silent mode
+  -p, --pics            Additional pictures
+  -x, --xml             Generate report file in XML format
+  -t, --txt             Generate report file in TXT (RST) format
+  -z, --gzip            XML and TXT report files will be gzip compressed.
+  --name OUTPUTFILENAME
+                        Set a filename for the report TXT and XML files.
+  -y, --pymol           Additional PyMOL session files
+  --maxthreads MAXTHREADS
+                        Set maximum number of main threads (number of binding
+                        sites processed simultaneously).If not set, PLIP uses
+                        all available CPUs if possible.
+  --breakcomposite      Don't combine ligand fragments with covalent bonds but
+                        treat them as single ligands for the analysis.
+  --altlocation         Also consider alternate locations for atoms (e.g.
+                        alternate conformations).
+  --nofix               Turns off fixing of PDB files.
+  --nofixfile           Turns off writing files for fixed PDB files.
+  --nopdbcanmap         Turns off calculation of mapping between canonical and
+                        PDB atom order for ligands.
+  --dnareceptor         Treat nucleic acids as part of the receptor structure
+                        (together with any present protein) instead of as a
+                        ligand.
+  --peptides PEPTIDES [PEPTIDES ...], --inter PEPTIDES [PEPTIDES ...]
+                        Allows to define one or multiple chains as peptide
+                        ligands or to detect inter-chain contacts
+  --intra INTRA         Allows to define one chain to analyze intra-chain
+                        contacts.
+  --keepmod             Keep modified residues as ligands
+  --nohydro             Do not add polar hydrogens in case your structure
+                        already contains hydrogens.
+  --model MODEL         Model number to be used for multi-model structures.
+  --chains CHAINS       Specify chains as receptor/ligand groups, e.g.,
+                        '[['A'], ['B']]'. Use format [['A'], ['B', 'C']] to
+                        define A as receptor, and B, C as ligands.
+  --regions REGIONS     Specify protein regions as receptor/ligand groups by
+                        chain and residue numbers. e.g., ({A: 1-20, 25, 26,
+                        28}, {A: 54-63, B: 17-46}) to define residues1-20, 25,
+                        26, and 28 of chain A as ligand and residues 54-63 of
+                        chain A and residues17-46 of chain B as receptor.
+                        Defining a receptor is optional. Multiple ligand-
+                        receptorpairs can be parsed as a list of tuples [({A:
+                        1-20}, {B: 17-46}), ({C: 5-43}, {D: 7})].
