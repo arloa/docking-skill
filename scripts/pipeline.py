@@ -341,9 +341,56 @@ def is_metal_hetatm(line):
     return line[17:20].strip().upper() in METALS
 
 
+WATER_RESNAMES = frozenset({'HOH', 'WAT', 'H2O', 'DOD', 'SOL', 'TIP3'})
+
+
+def hetatm_groups(lines):
+    """Dockable HETATM candidates in a receptor, keyed by
+    (resname, chain, resseq). Waters, metal-only groups and fragments
+    under 3 atoms (ions) are never dockable ligands."""
+    groups = OrderedDict()
+    for line in lines:
+        if line.startswith('HETATM'):
+            key = (line[17:20].strip(), line[21:22].strip(), line[22:27].strip())
+            groups.setdefault(key, []).append(line)
+    result = []
+    for (resname, chain, resseq), group in groups.items():
+        if resname in WATER_RESNAMES or len(group) < 3 \
+                or all(is_metal_hetatm(line) for line in group):
+            continue
+        result.append({'resname': resname, 'chain': chain, 'resseq': resseq,
+                       'atoms': len(group), 'lines': group})
+    return result
+
+
+def pick_hetatm(groups, spec):
+    """spec is RESNAME or RESNAME:CHAIN:RESSEQ."""
+    def listing():
+        return ', '.join('{}:{}:{}'.format(g['resname'], g['chain'] or '-',
+                                           g['resseq']) for g in groups)
+    parts = spec.split(':')
+    if len(parts) == 1:
+        matches = [g for g in groups if g['resname'] == parts[0].upper()]
+    elif len(parts) == 3:
+        resname, chain, resseq = parts
+        matches = [g for g in groups
+                   if (g['resname'], g['chain'], g['resseq'])
+                   == (resname.upper(), chain.strip(), resseq.strip())]
+    else:
+        raise ValueError('ligand_from_receptor spec must be RESNAME or '
+                         'RESNAME:CHAIN:RESSEQ — got ' + spec)
+    if not matches:
+        raise ValueError(f'no HETATM ligand matching {spec!r} in receptor; '
+                         f'candidates: {listing() or "none"}')
+    if len(matches) > 1:
+        raise ValueError(f'{spec} matches {len(matches)} molecules — '
+                         f'specify RESNAME:CHAIN:RESSEQ: {listing()}')
+    return matches[0]
+
+
 def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
                   drop_hetatm=False, keep_metals=False, autobox_ligand=None,
-                  timeout=300):
+                  ligand_from_receptor=None, timeout=300):
     root = run_dir.resolve()
     stage = root / 'prep'
     stage.mkdir(parents=True, exist_ok=True)
@@ -362,6 +409,24 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
         if keep_metals and not drop_hetatm:
             raise ValueError('--keep_metals only makes sense with --drop_hetatm')
         hetatms = sorted({line[17:20].strip() for line in lines if line.startswith('HETATM')})
+        # redock mode: extract a co-crystal ligand from the receptor BEFORE
+        # any HETATM stripping. The molecule always leaves the receptor —
+        # docking into an occupied pocket is meaningless — regardless of
+        # --drop_hetatm.
+        extracted = None
+        if ligand_from_receptor:
+            groups = hetatm_groups(lines)
+            group = pick_hetatm(groups, ligand_from_receptor)
+            stem = safe_name(group['resname']) if sum(
+                g['resname'] == group['resname'] for g in groups) == 1 \
+                else safe_name('{}_{}{}'.format(group['resname'], group['chain'], group['resseq']))
+            drop_key = (group['resname'], group['chain'], group['resseq'])
+            lines = [line for line in lines if not (
+                line.startswith('HETATM') and (line[17:20].strip(),
+                line[21:22].strip(), line[22:27].strip()) == drop_key)]
+            extracted = (stem, group)
+            hetatms = sorted({line[17:20].strip() for line in lines
+                              if line.startswith('HETATM')})
         if drop_hetatm:
             kept = sorted({line[17:20].strip() for line in lines
                            if line.startswith('HETATM') and keep_metals
@@ -403,9 +468,28 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
                 raise ValueError('autobox reference has no atoms')
             strip_source_remark(ref_out)
             state['artifacts'].append(rel(ref_out, root))
-        names = set()
+        names = set()   # real stems — dock compares them to glob'd filenames
+        seen = set()    # case-insensitive dedup
+        if extracted:
+            stem, group = extracted
+            target = stage / 'ligands' / (stem + '.pdbt')
+            with tempfile.TemporaryDirectory(dir=stage) as temp:
+                source = Path(temp) / (stem + '.pdb')
+                source.write_text(''.join(group['lines']))
+                to_pdbt(source, target, obabel, log, timeout,
+                        state['warnings'], 'extracted ' + stem)
+            if not atom_lines(target) or 'TORSDOF ' not in target.read_text(errors='replace'):
+                raise ValueError('invalid prepared PDBT ligand: ' + stem)
+            strip_source_remark(target)
+            state['artifacts'].append(rel(target, root))
+            # the extracted pose is the natural autobox reference for a
+            # redock — dock picks it up via the _autobox.pdbt convention
+            shutil.copyfile(target, stage / (stem + '_autobox.pdbt'))
+            state['artifacts'].append(rel(stage / (stem + '_autobox.pdbt'), root))
+            names.add(stem)
+            seen.add(stem.lower())
         inputs = []
-        for path in ligand:
+        for path in ligand or []:
             source = path.expanduser().resolve(strict=True)
             if source.suffix.lower() in ('.smi', '.smiles'):
                 for line in source.read_text().splitlines():
@@ -418,9 +502,10 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
                 inputs.append((source.stem, source, None))
         for name, source, smiles in inputs:
             stem = safe_name(name) if smiles else name
-            if stem.lower() in names:
+            if stem.lower() in seen:
                 raise ValueError('duplicate ligand name: ' + stem)
-            names.add(stem.lower())
+            names.add(stem)
+            seen.add(stem.lower())
             target = stage / 'ligands' / (stem + '.pdbt')
             to_pdbt(source, target, obabel, log, timeout,
                     state['warnings'], stem, smiles=smiles)
@@ -432,8 +517,10 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
             raise ValueError('no ligands prepared')
         state['metrics'] = {'n_ligands': len(names), 'ligands': sorted(names),
                             'receptor_chains': chains, 'hetatm_resnames': hetatms,
+                            'ligand_from_receptor': extracted[0] if extracted else None,
                             'receptor_file': prepared_rec.name,
-                            'autobox_file': ref_out.name if ref_out else None}
+                            'autobox_file': ref_out.name if ref_out
+                            else (extracted[0] + '_autobox.pdbt' if extracted else None)}
         state['status'] = 'ok'
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
         state['error'] = str(error)
@@ -697,6 +784,15 @@ def stage_dock(run_dir, recipe=None, config=None, cli_flags=None,
         merge_into(preliminary, 'config', config_settings, state['warnings'], GENERATED)
         merge_into(preliminary, 'cli', anchor_paths(cli_flags or {}, Path.cwd()),
                    state['warnings'], GENERATED)
+        # redock convenience: when the ligand was extracted from the
+        # receptor, its own bound pose is the natural autobox reference
+        if 'autobox' in preliminary and 'autobox_ligand' not in preliminary \
+                and (prep or {}).get('metrics', {}).get('ligand_from_receptor'):
+            ref = root / 'prep' / (prep['metrics']['ligand_from_receptor'] + '_autobox.pdbt')
+            if not ref.is_file():
+                raise ValueError('extracted-ligand autobox reference missing; '
+                                 'rerun prepare with --ligand_from_receptor')
+            preliminary['autobox_ligand'] = str(ref)
         if not Path(preliminary['out']).resolve().is_relative_to(root):
             raise ValueError('out must live inside the run dir')
         # whatever won the merge must point at real inputs; names are
@@ -1091,10 +1187,11 @@ def cmd_workflow(args, cli_flags):
     # actually runs, so resuming a finished run doesn't require the inputs.
     # Explicit kwargs make the per-stage contract visible in the signatures.
     stages = {'prepare': lambda: stage_prepare(
-                  run_dir=root, receptor=args.receptor, ligand=list(args.ligand),
+                  run_dir=root, receptor=args.receptor, ligand=list(args.ligand or []),
                   obabel_vinardock=obabel,
                   drop_hetatm=args.drop_hetatm, keep_metals=args.keep_metals,
-                  autobox_ligand=args.autobox_ligand),
+                  autobox_ligand=args.autobox_ligand,
+                  ligand_from_receptor=args.ligand_from_receptor),
               'dock': lambda: stage_dock(
                   run_dir=root, recipe=str(recipe) if recipe else None,
                   config=args.config,
@@ -1130,8 +1227,12 @@ def main():
     run.add_argument('--run_dir', type=Path, required=True)
     inputs = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     inputs.add_argument('--prepare_receptor', dest='receptor', type=Path, required=True)
-    inputs.add_argument('--prepare_ligand', dest='ligand', type=Path,
-                        action='append', required=True)
+    ligand_source = inputs.add_mutually_exclusive_group(required=True)
+    ligand_source.add_argument('--prepare_ligand', dest='ligand', type=Path,
+                               action='append')
+    ligand_source.add_argument('--ligand_from_receptor', metavar='RES[:CHAIN:SEQ]',
+                               help='extract a co-crystal HETATM ligand from the '
+                                    'receptor (see the scan subcommand)')
     inputs.add_argument('--prepare_autobox_ligand', dest='autobox_ligand', type=Path,
                         help='raw autobox reference input (prepared like a ligand)')
     docking = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
@@ -1163,6 +1264,10 @@ def main():
                        help='run vinardock on prepared inputs')
     p.add_argument('--prepare_autobox_ligand', dest='autobox_ligand', type=Path)
     p.add_argument('--timeout', type=int, default=21600, help='vinardock timeout (s)')
+
+    p = sub.add_parser('scan', allow_abbrev=False,
+                       help='list dockable HETATM molecules in a receptor pdb')
+    p.add_argument('receptor', type=Path)
 
     p = sub.add_parser('analyse', parents=[run, tools], allow_abbrev=False,
                        help='PLIP interaction analysis + report.md')
@@ -1196,6 +1301,16 @@ def main():
     handlers = {'prepare': stage_prepare, 'dock': stage_dock,
                 'analyse': stage_analyse}
     try:
+        if args.command == 'scan':
+            lines = args.receptor.expanduser().resolve(strict=True).read_text(
+                errors='replace').splitlines()
+            groups = hetatm_groups(lines)
+            for g in groups:
+                print('{}:{}:{} atoms={}'.format(g['resname'], g['chain'] or '-',
+                                                 g['resseq'], g['atoms']))
+            if not groups:
+                print('no dockable HETATM candidates')
+            return 0
         if args.command == 'workflow':
             return cmd_workflow(args, cli_flags)
         # subparser arg names match the stage kwargs exactly

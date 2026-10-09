@@ -43,7 +43,11 @@ linux-amd64 static binaries.
   over adding a hash.
 - `prepare` names prepared files after the input stem: receptor
   `<stem>.pdbt`, autobox reference `<stem>_autobox.pdbt`, ligands
-  `ligands/<stem>.pdbt`. It deletes the obabel `REMARK  Name =` line so
+  `ligands/<stem>.pdbt`. `--ligand_from_receptor` extracts a co-crystal
+  HETATM group as the ligand (mutually exclusive with
+  `--prepare_ligand`), always removes it from the receptor, and also
+  writes it as `<stem>_autobox.pdbt` so `--autobox` boxes the original
+  binding site. It deletes the obabel `REMARK  Name =` line so
   prepared artifacts depend only on input content (the conversion runs
   in a random temp dir otherwise).
 - The coordinator must not inspect input file contents before a run —

@@ -63,7 +63,9 @@ Exit codes (all subcommands): `0` = ok, `1` = stage/run failure
 ### Per-stage metrics
 
 **prepare** — `n_ligands`, `ligands` (sorted names), `receptor_chains`,
-`hetatm_resnames`, `receptor_file` / `autobox_file` (filenames in `prep/`).
+`hetatm_resnames`, `ligand_from_receptor` (stem of the extracted
+co-crystal ligand, or null), `receptor_file` / `autobox_file`
+(filenames in `prep/`).
 
 **dock** — `recipe` (recipe name), `config` (`--config` file stem or
 null), `seed`, `threads`, `resolved_box`

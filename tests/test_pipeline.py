@@ -324,6 +324,40 @@ class AnalyseHelperTests(unittest.TestCase):
         self.assertFalse(pipe.is_metal_hetatm(
             atom(0, 0, 0, kind='HETATM', name='O', resname='HOH', element='')))
 
+    def test_hetatm_groups_and_pick(self):
+        pipe = module('pipeline')
+        lines = [atom(0, 0, 0, kind='HETATM', name='O', resname='HOH',
+                      resseq=100, element='O'),
+                 atom(0, 0, 0, kind='HETATM', name='ZN', resname='ZN',
+                      resseq=101, element='ZN'),
+                 atom(0, 0, 0, kind='HETATM', name='NA', resname='NA',
+                      resseq=102, element='NA'),
+                 atom(0, 0, 0, kind='HETATM', name='C1', resname='LIG',
+                      resseq=301, element='C'),
+                 atom(1, 1, 1, kind='HETATM', name='O1', resname='LIG',
+                      resseq=301, element='O'),
+                 atom(2, 2, 2, kind='HETATM', name='N1', resname='LIG',
+                      resseq=301, element='N')]
+        groups = pipe.hetatm_groups(lines)
+        # water, metal ion and the <3-atom groups are not candidates
+        self.assertEqual([(g['resname'], g['atoms']) for g in groups],
+                         [('LIG', 3)])
+        self.assertEqual(pipe.pick_hetatm(groups, 'LIG')['resseq'], '301')
+        self.assertEqual(pipe.pick_hetatm(groups, 'lig')['resname'], 'LIG')
+        with self.assertRaisesRegex(ValueError, 'candidates'):
+            pipe.pick_hetatm(groups, 'ATP')
+        # two instances of the same resname need RESNAME:CHAIN:RESSEQ
+        lines.append(atom(3, 3, 3, kind='HETATM', name='C1', resname='LIG',
+                          resseq=302, element='C'))
+        lines.append(atom(4, 4, 4, kind='HETATM', name='O1', resname='LIG',
+                          resseq=302, element='O'))
+        lines.append(atom(5, 5, 5, kind='HETATM', name='N1', resname='LIG',
+                          resseq=302, element='N'))
+        groups = pipe.hetatm_groups(lines)
+        with self.assertRaisesRegex(ValueError, 'matches 2'):
+            pipe.pick_hetatm(groups, 'LIG')
+        self.assertEqual(pipe.pick_hetatm(groups, 'LIG:A:302')['resseq'], '302')
+
     def test_parse_xml_rejects_ambiguous_site(self):
         pipe = module('pipeline')
         xml = '<report><bindingsites><bindingsite><interactions/></bindingsite></bindingsites></report>'

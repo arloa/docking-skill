@@ -28,6 +28,7 @@
 - On flex runs, use the modified receptor output for the complex instead of the unmodified prep receptor when available.
 - Probe searches only PATH and the invocation's working directory (plus the existing tools install target), never guessed source directories. Binaries that exist but cannot launch are listed under `unusable` with the error — check it before concluding a tool is absent.
 - Receptor HETATM records may represent essential cofactors/metal ions or irrelevant waters/co-crystal ligands; ask before stripping, never silently discard them. Do not pre-read the receptor to list them — ask directly; prepare reports the residue names kept or dropped. `--drop_hetatm --keep_metals` is the standard prep (drops waters/cofactors/co-solutes, keeps metal ions by element column); `--drop_hetatm` alone strips everything.
+- For redocking a known complex, `--ligand_from_receptor <RESNAME[:CHAIN:SEQ]>` extracts a co-crystal HETATM molecule as the ligand — `pipeline.py scan <receptor>` lists candidates (waters, metal-only groups and <3-atom fragments are excluded). The extracted molecule is always removed from the receptor and written as `prep/<stem>_autobox.pdbt`, so `--autobox <pad>` alone boxes the original binding site. Mutually exclusive with `--prepare_ligand`.
 - Blank-chain receptor records are reported as chain `(blank)` in `receptor_chains` — a reporting placeholder, not a real chain ID; do not use it in flexres/mutation specs.
 
 

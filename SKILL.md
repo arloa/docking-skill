@@ -44,7 +44,9 @@ Hard rules:
    `python3 <skill_dir>/scripts/pipeline.py workflow --run_dir <d>
    --prepare_receptor <f> --prepare_ligand <f> --recipe <n>` plus
    interview flags (`--prepare_autobox_ligand`, `--drop_hetatm`,
-   `--keep_metals`, `--pose`, `--timeout`). Any unknown `--flag value` is a vinardock
+   `--keep_metals`, `--pose`, `--timeout`). For redocking a known
+   complex, `--ligand_from_receptor <spec>` replaces
+   `--prepare_ligand` (run `scan` first to list candidates). Any unknown `--flag value` is a vinardock
    flag passed through verbatim — `--seed`, box coords, `autobox`,
    `flexres`, swarm/scoring options all go on the same command line.
    A whole vinardock config file merges with `--config <path>`.

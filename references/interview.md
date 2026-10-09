@@ -14,11 +14,20 @@ question pass — scripts never ask questions.
      metals (`--drop_hetatm` alone). Ask directly — do not read the
      receptor to enumerate the residues. Prepare reports the residue
      names kept or dropped in its warnings/metrics.
-2. **Ligands** — either:
-   - structure files (`.pdbt`, `.sdf`, `.mol2`, `.pdb`), or
-   - SMILES — create a `.smi` input file outside the run directory,
-     `SMILES<space>name` per line; inputs are read in place (never
-     copied into the run directory).
+2. **Ligands** — exactly one source:
+   - structure files (`.pdbt`, `.sdf`, `.mol2`, `.pdb`) via
+     `--prepare_ligand`, or
+   - SMILES via `--prepare_ligand` — create a `.smi` input file
+     outside the run directory, `SMILES<space>name` per line; inputs
+     are read in place (never copied into the run directory), or
+   - **extracted from the receptor** via `--ligand_from_receptor
+     <RESNAME[:CHAIN:SEQ]>` — the redock case. When the user wants the
+     receptor's co-crystal ligand, run `pipeline.py scan <receptor>`
+     first, present the candidate list (`RESNAME:chain:seq atoms=n`),
+     and **ASK** which molecule to use. The extracted molecule is
+     always removed from the receptor (docking into an occupied
+     pocket is meaningless) and doubles as the autobox reference —
+     `--autobox <pad>` alone then boxes the original binding site.
    - 2D structures are handled (prepare runs `--gen3d`); duplicate
      ligand names are a hard error.
 3. **Box** — pick one:
