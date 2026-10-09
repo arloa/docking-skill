@@ -22,8 +22,9 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = Path.home() / '.local/share/docking-tools'
-# the repo ships a fully static obabel — no install or host Open Babel needed
+# the repo ships fully static binaries — no install or host libs needed
 BUNDLED_OBABEL = ROOT / 'bin/obabel-vinardock'
+BUNDLED_VINARDOCK = ROOT / 'bin/vinardock'
 STAGES = ('prepare', 'dock', 'analyse')
 FOLDERS = {'prepare': 'prep', 'dock': 'dock', 'analyse': 'analysis'}
 PARAM_FILES = ('param.dat', 'param.TxT.dat', 'dun2010bbdep.bin')
@@ -617,7 +618,8 @@ def stage_dock(run_dir, recipe=None, config=None, cli_flags=None,
     state = new_status('dock')
     try:
         tools = tools_dir.expanduser().resolve()
-        executable = tools / 'bin/vinardock'
+        executable = BUNDLED_VINARDOCK if BUNDLED_VINARDOCK.is_file() \
+            else tools / 'bin/vinardock'
         if not executable.is_file():
             raise FileNotFoundError(executable)
         prep = read_status(root, 'prepare')
@@ -1049,7 +1051,8 @@ def cmd_workflow(args, cli_flags):
     root = args.run_dir.expanduser().resolve()
     tools = args.tools_dir.expanduser().resolve()
     obabel = BUNDLED_OBABEL if BUNDLED_OBABEL.is_file() else tools / 'bin/obabel-vinardock'
-    missing = [str(p) for p in [tools / 'bin/vinardock', obabel,
+    vinardock = BUNDLED_VINARDOCK if BUNDLED_VINARDOCK.is_file() else tools / 'bin/vinardock'
+    missing = [str(p) for p in [vinardock, obabel,
                                 tools / 'plip-venv/bin/plip',
                                 *[tools / 'param' / f for f in PARAM_FILES]]
                if not p.is_file()]

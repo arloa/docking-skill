@@ -17,7 +17,7 @@ build. Search scope is deliberately narrow — **PATH, the literal pwd,
 and the existing tools dir only**:
 
 - `vinardock`, `obabel-vinardock` — the repo's own `bin/<name>` first
-  (it ships a fully static obabel-vinardock), then PATH,
+  (it ships fully static builds of both), then PATH,
   `<pwd>/<name>`, `tools/bin/<name>` (bare `obabel` is NEVER probed
   or used)
 - `param` — `<pwd>/param/` and `tools/param/` (needs `param.dat` +
@@ -30,12 +30,11 @@ No filesystem scanning, no guessed directories — a binary elsewhere is
 
 ## 2. Ask (coordinator)
 
-Show the probe result and ask the user **one question**: use the local
-tools found, or download the pinned release? `obabel-vinardock` needs no
-asking — the repo ships a fully static build (`bin/obabel-vinardock`,
-needs no Open Babel libraries on the host at all) and install defaults
-to it. For vinardock + param: local when found, download otherwise.
-Per-tool mixing via explicit paths is also fine.
+Show the probe result. `vinardock` and `obabel-vinardock` need no
+asking — the repo ships fully static builds (`bin/`, no host
+libraries needed at all) and install defaults to them; explicit paths
+still override. The remaining question is `param/` (download the
+pinned files, or a local `param/` dir) and PLIP (always the venv).
 
 If `plip-venv` is missing it is always created — there is no system PLIP
 to reuse.
@@ -44,13 +43,14 @@ to reuse.
 
 ```bash
 python3 "<skill_dir>/scripts/setup.py" install \
-    --vinardock <abs-path|download> \
+    [--vinardock <abs-path|download>] \
     [--obabel-vinardock <abs-path|download>] \
     [--param <abs-dir|download>] [--skip-plip] [--launcher]
 ```
 
-`--obabel-vinardock` defaults to the repo's bundled static build
-(`bin/obabel-vinardock`) — pass it only to override.
+`--vinardock`/`--obabel-vinardock` default to the repo's bundled
+static builds (`bin/`, built for ubuntu 22.04 — static, so they run
+anywhere regardless of host glibc) — pass either only to override.
 
 - `local` (a path) → copied into `~/.local/share/docking-tools/bin/`
   (copied, not symlinked — freezes the artifact).

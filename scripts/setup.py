@@ -268,12 +268,11 @@ def main():
     sub = parser.add_subparsers(dest='action', required=True)
     sub.add_parser('probe')
     install_parser = sub.add_parser('install')
-    install_parser.add_argument('--vinardock', required=True)
-    # the repo ships a fully static build — zero host Open Babel needed
-    bundled_obabel = ROOT / 'bin/obabel-vinardock'
-    install_parser.add_argument('--obabel-vinardock',
-                                default=str(bundled_obabel) if bundled_obabel.is_file()
-                                else 'download')
+    # the repo ships fully static builds — no downloads or host libs needed
+    for name in ('vinardock', 'obabel-vinardock'):
+        bundled = ROOT / 'bin' / name
+        install_parser.add_argument(
+            '--' + name, default=str(bundled) if bundled.is_file() else 'download')
     install_parser.add_argument('--param', default='download')
     install_parser.add_argument('--skip-plip', action='store_true')
     install_parser.add_argument('--launcher', action='store_true',

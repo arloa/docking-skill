@@ -21,10 +21,14 @@ assets in `setup.py` are linux-amd64 only.
 - `scripts/pipeline.py` is the single entry point:
   `prepare | dock | analyse` stages plus the `workflow` coordinator.
   Shared helpers live once at the top of the file.
-- `bin/obabel-vinardock` is a **fully static** Open Babel 3.1.1 build
-  shipped in the repo — needs no host libraries. `setup.py install`
-  defaults to it and `pipeline.py` prefers it over
-  `<tools_dir>/bin/obabel-vinardock`.
+- `bin/` ships **fully static** builds of both executables —
+  `obabel-vinardock` (Open Babel 3.1.1) and `vinardock` (built from
+  `~/Calculos/Vinardock` with the Makefile flags minus
+  `-march=native`, linked `-static`). Both: `ldd` → `not a dynamic
+  executable`, no glibc or host-lib requirement; built for
+  ubuntu 22.04 but runs anywhere x86_64 Linux. `setup.py install`
+  defaults to them and `pipeline.py` prefers them over
+  `<tools_dir>/bin/`.
 - `scripts/setup.py` pins every release asset by sha256 in `CHECKSUMS`;
   `ASSETS` maps each tool to (modern asset, glibc fallback asset, minimum
   glibc). Downloads try the modern asset first on new glibc and the

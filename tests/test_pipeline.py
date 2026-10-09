@@ -556,9 +556,13 @@ class SetupTests(unittest.TestCase):
             try:
                 os.chdir(root)
                 with patch.object(setup, 'TOOLS', root / 'tools'), patch.dict(os.environ, {'PATH': ''}):
-                    self.assertEqual(setup.probe()['vinardock'], [])
+                    # bundled bin/vinardock is always found; the test binary
+                    # in <pwd> must appear too once dropped in
+                    self.assertNotIn(str(binary),
+                                     [c['path'] for c in setup.probe()['vinardock']])
                     binary.rename(root / 'vinardock')
-                    self.assertEqual(setup.probe()['vinardock'][0]['path'], str(root / 'vinardock'))
+                    self.assertIn(str(root / 'vinardock'),
+                                  [c['path'] for c in setup.probe()['vinardock']])
             finally:
                 os.chdir(old)
 
