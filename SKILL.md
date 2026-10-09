@@ -33,8 +33,8 @@ Hard rules:
 
 1. **Tools** — follow `references/setup.md`. Run `scripts/setup.py probe`,
    show candidates (including `unusable` entries and their errors) —
-   binaries come from the repo's `bin/` by default, so the only choice is
-   `param/` (download vs local dir); then `scripts/setup.py install`.
+   binaries and `param/` come bundled in the repo, so install just
+   copies them; then `scripts/setup.py install`.
    probe shows everything already installed and the user confirms reuse.
 2. **Interview** — follow `references/interview.md`. One question pass:
    inputs, box mode, run dir, pose, recipe + the flags it still needs

@@ -29,17 +29,14 @@ linux-amd64 static binaries.
   ubuntu 22.04 but runs anywhere x86_64 Linux. `setup.py install`
   defaults to them and `pipeline.py` prefers them over
   `<tools_dir>/bin/`.
-- `scripts/setup.py install` copies binaries from `bin/` (or an explicit
-  path) — there is no binary download path. The only download is the
-  `param/` files, fetched from `arloa/Vinardock-exec` pinned commit
-  `11caaa8` and sha256-verified via `PARAM_HASHES`.
+- `scripts/setup.py install` copies from `bin/` and `param/` (or
+  explicit dirs) — there is no download path at all; the only network
+  step is provisioning the PLIP venv (`uv`).
 - **No hashing for verification.** status.json lists artifact *paths*
   only; resume checks are status + existence + timestamp staleness
   (a stage is stale when its predecessor finished after it started).
   Inputs are referenced in place by path — nothing copies or hashes them,
   and edits to inputs are not detected on resume (use a new run dir).
-  Checksums in `setup.py` exist only to verify downloads, not to track
-  provenance.
 - Validation is structural, not byte-level: pdbt files must contain
   atoms + `TORSDOF`, log.csv headers are matched by name, PLIP output is
   verified by binding-site identity. Prefer adding a structural check

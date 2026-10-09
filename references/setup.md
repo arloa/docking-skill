@@ -20,8 +20,9 @@ and the existing tools dir only**:
   (it ships fully static builds of both), then PATH,
   `<pwd>/<name>`, `tools/bin/<name>` (bare `obabel` is NEVER probed
   or used)
-- `param` — `<pwd>/param/` and `tools/param/` (needs `param.dat` +
-  `param.TxT.dat` minimum)
+- `param` — the repo's own `param/` first, then `<pwd>/param/` and
+  `tools/param/` (needs all of `param.dat`, `param.TxT.dat`,
+  `dun2010bbdep.bin`)
 - `plip` — `tools/plip-venv/bin/plip`
 - `launcher` — resolved path of `vinardock-pipeline` on PATH, or `null`
 
@@ -30,11 +31,11 @@ No filesystem scanning, no guessed directories — a binary elsewhere is
 
 ## 2. Ask (coordinator)
 
-Show the probe result. `vinardock` and `obabel-vinardock` need no
-asking — the repo ships fully static builds (`bin/`, no host
-libraries needed at all) and install defaults to them; explicit paths
-still override. The remaining question is `param/` (download the
-pinned files, or a local `param/` dir) and PLIP (always the venv).
+Show the probe result. `vinardock`, `obabel-vinardock`, and `param/`
+need no asking — the repo ships fully static builds (`bin/`, no host
+libraries needed at all) and the parameter files (`param/`); install
+defaults to all of them, explicit paths still override. The only
+provisioned piece is PLIP (always the venv).
 
 If `plip-venv` is missing it is always created — there is no system PLIP
 to reuse.
@@ -45,20 +46,17 @@ to reuse.
 python3 "<skill_dir>/scripts/setup.py" install \
     [--vinardock <abs-path>] \
     [--obabel-vinardock <abs-path>] \
-    [--param <abs-dir|download>] [--skip-plip] [--launcher]
+    [--param <abs-dir>] [--skip-plip] [--launcher]
 ```
 
 `--vinardock`/`--obabel-vinardock` default to the repo's bundled
 static builds (`bin/`, built for ubuntu 22.04 — static, so they run
 anywhere regardless of host glibc) — pass either only to override.
 
-- a path → copied into `~/.local/share/docking-tools/bin/`
-  (copied, not symlinked — freezes the artifact). The bundled builds
-  are the default; there is no binary download path.
-- `param/ download` (the default) fetches the three parameter files
-  from pinned commit `11caaa8` of `github.com/arloa/Vinardock-exec`,
-  each verified against its sha256 in `PARAM_HASHES`; a path installs
-  a local `param/` dir instead.
+- a path → copied into `~/.local/share/docking-tools/bin/` (or
+  `param/`); copied, not symlinked — freezes the artifact. The
+  bundled builds/files are the default; there is no download path —
+  the repo is self-contained except for the PLIP venv.
 - PLIP → `uv venv --python <invoking Python> <tools_dir>/plip-venv` +
   pinned deps including the self-contained `openbabel` 3.2.1 wheel —
   a different Open Babel than the obabel-vinardock CLI uses; noted in

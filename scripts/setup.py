@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -8,25 +7,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = Path.home() / '.local/share/docking-tools'
-SOURCE = 'https://raw.githubusercontent.com/arloa/Vinardock-exec/11caaa8/'
-PARAM_HASHES = {
-    'param.dat': 'd6ae4eb72dd94d228eaaebe14a50762d54ae8a0e19303e20d1d0195bfcd13ae7',
-    'param.TxT.dat': 'bba8ee8a0ccd702cf46d37a6d2680da3dfaec4d445b8d2b7e65d162d9cb8704c',
-    'dun2010bbdep.bin': 'ed3f7be5f33b5fa947ac5e83cb024c6a6af6440bb50a1c8073aacabe6d792d0e',
-}
-
-
-def digest(path):
-    h = hashlib.sha256()
-    with open(path, 'rb') as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-            h.update(chunk)
-    return h.hexdigest()
+PARAM_FILES = ('param.dat', 'param.TxT.dat', 'dun2010bbdep.bin')
 
 
 def candidate(path, name):
@@ -66,8 +51,8 @@ def probe():
         result[name] = found
     result['unusable'] = unusable
     result['param'] = [str(directory.resolve())
-                       for directory in (Path.cwd() / 'param', TOOLS / 'param')
-                       if directory.is_dir() and all((directory / name).is_file() for name in PARAM_HASHES)]
+                       for directory in (ROOT / 'param', Path.cwd() / 'param', TOOLS / 'param')
+                       if directory.is_dir() and all((directory / name).is_file() for name in PARAM_FILES)]
     result['plip'] = (TOOLS / 'plip-venv/bin/plip').is_file()
     found = shutil.which('vinardock-pipeline')
     result['launcher'] = str(Path(found).resolve()) if found else None
@@ -119,14 +104,6 @@ def make_launcher(replace=False):
     return result
 
 
-def fetch(url, target, expected):
-    with urllib.request.urlopen(url, timeout=90) as response, open(target, 'wb') as out:
-        shutil.copyfileobj(response, out)
-    if digest(target) != expected:
-        target.unlink()
-        raise ValueError('sha256 mismatch for ' + url)
-
-
 def install_copy(source, target, replace=False):
     """Copy a file into the tools dir; refuses to clobber without --replace."""
     if source.resolve() == target.resolve():
@@ -159,21 +136,14 @@ def install(args):
             else 'local ' + str(source)
         summary[name] = candidate(target, name)
         summary[name]['source'] = origin
-    for name, expected in PARAM_HASHES.items():
-        target = TOOLS / 'param' / name
-        if args.param == 'download':
-            with tempfile.TemporaryDirectory() as temp:
-                source = Path(temp) / name
-                fetch(SOURCE + 'param/' + name, source, expected)
-                install_copy(source, target, replace=args.replace)
-            origin = 'source commit 11caaa8'
-        else:
-            source = Path(args.param).expanduser().resolve() / name
-            if not source.is_file():
-                raise FileNotFoundError(source)
-            install_copy(source, target, replace=args.replace)
-            origin = 'local ' + str(Path(args.param).expanduser().resolve())
-        summary.setdefault('param', {})[name] = {'path': str(target), 'source': origin}
+    param_dir = Path(args.param).expanduser().resolve()
+    for name in PARAM_FILES:
+        source = param_dir / name
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        install_copy(source, TOOLS / 'param' / name, replace=args.replace)
+        summary.setdefault('param', {})[name] = {'path': str(TOOLS / 'param' / name),
+                                                 'source': 'local ' + str(param_dir)}
     plip = TOOLS / 'plip-venv/bin/plip'
     if not args.skip_plip and not plip.is_file():
         uv = shutil.which('uv')
@@ -217,7 +187,8 @@ def main():
     for name in ('vinardock', 'obabel-vinardock'):
         install_parser.add_argument('--' + name, default=str(ROOT / 'bin' / name),
                                     help='path to a ' + name + ' binary (default: bundled)')
-    install_parser.add_argument('--param', default='download')
+    install_parser.add_argument('--param', default=str(ROOT / 'param'),
+                                help='dir containing the param files (default: bundled)')
     install_parser.add_argument('--skip-plip', action='store_true')
     install_parser.add_argument('--launcher', action='store_true',
                                 help='symlink vinardock-pipeline into a PATH dir without asking')

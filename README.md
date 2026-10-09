@@ -7,14 +7,14 @@ the agent needs to coordinate the run.
 
 ## Requirements
 
-- Linux x86_64 — the Vinardock/obabel-vinardock release assets are
-  linux-amd64 only
+- Linux x86_64 — `bin/` ships linux-amd64 static `vinardock` +
+  `obabel-vinardock` builds (no host libraries needed) and `param/`
+  ships the parameter files, so install needs no binary or param
+  downloads
 - Python ≥ 3.9 (stdlib only; no pip dependencies)
-- Network access on first run to download the pinned `param/` files
-  and build the PLIP venv into `~/.local/share/docking-tools` —
-  override per run with `--tools_dir`. Fully static `vinardock` +
-  `obabel-vinardock` builds ship in `bin/` — no download or host
-  libraries needed.
+- Network access is needed only to build the PLIP venv into
+  `~/.local/share/docking-tools` (or pass `--skip-plip` / a local
+  `--param` dir) — override per run with `--tools_dir`.
 
 ## Install
 
