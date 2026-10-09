@@ -1,141 +1,146 @@
 # Pipeline contract
 
 The single source of truth for the file interface between the
-coordinator and the stage scripts (`prepare.py`, `run.py`, `analyse.py`).
-Each script implements this contract independently — there is no shared
-code between them, on purpose.
+coordinator and the stages of `scripts/pipeline.py`
+(`prepare`, `dock`, `analyse` subcommands; `workflow` orchestrates them
+in-process). Stages communicate only through the run-dir filesystem —
+each can also be invoked standalone.
 
 ## Run-dir layout
 
 ```
 <run_dir>/
-  manifest.json      # coordinator-owned provenance (see below)
   prep/
     status.json
     <stem>.pdbt                  # prepared receptor, input stem preserved
-    <stem>_autobox.pdbt          # autobox reference, input stem preserved (autobox only)
-    ligands/<stem>.pdbt          # one file per ligand, flat; input stem preserved
-    prep.log                     # prepare.py's own log
+    <stem>_autobox.pdbt          # autobox reference (autobox only)
+    ligands/<stem>.pdbt          # one file per ligand, flat
+    prep.log                     # prepare's own log
   dock/
     status.json
-    config.txt                   # the exact config passed to vinardock
-    vinardock.log                # captured stdout+stderr of the run
-    attempts/<signature>[-N]/DOCK/  # fresh attempt; never reuses mtime cache
-      <file>.pdbt                      # single-ligand runs (flat)
-      <2-char>/<stem>/<file>.pdbt      # batch runs (>1 ligand → VS mode)
-      <receptor>_modified.pdbt         # flex runs only
-      log.csv
+    attempt-<N>/                 # fresh dir per run — never reuses vinardock's
+      config.txt                 #   mtime cache. The fully merged config
+      vinardock.log              #   vinardock ran. N = next free counter.
+      DOCK/
+        <file>.pdbt                     # single-ligand runs (flat)
+        <2-char>/<stem>/<file>.pdbt     # batch runs (>1 ligand → VS mode)
+        <receptor>_modified.pdbt        # flex runs only
+        log.csv
   analysis/
     status.json
+    <name>_pose.pdbt / <name>_ligand.pdb / <name>_receptor.pdb
     <name>_complex.pdb
-    <name>_report.xml
-    <name>_report.txt
-  report.md            # written by analyse.py, header = provenance block
+    <name>_report.xml / <name>_report.txt / <name>_plip.log
+    # PLIP intermediates (<name>_complex_protonated.pdb, plipfixed.*)
+    # are deleted after the PLIP workers finish
+  report.md            # written by analyse, header = provenance block
 ```
 
-Input files are **not copied** into the run dir. The coordinator records
-each input's absolute path and sha256 in `manifest.json.inputs` and the
-stage scripts read the originals in place. There is no `inputs/`
-directory.
-
-Write scope: a stage may only write inside its own directory
-(`prep/`, `dock/`, `analysis/`). `manifest.json` belongs to the
-coordinator. `report.md` is written by analyse.py as a special
-exception.
+Input files are **not copied** into the run dir; stage scripts read them
+in place. A stage may only write inside its own folder (`prep/`,
+`dock/`, `analysis/`); `report.md` at the root is analyse's exception.
 
 ## status.json
 
-Written **atomically** (write `status.json.tmp`, then `os.replace`) so a
-reader never sees a partial file.
+Written **atomically** (`status.json.tmp` then `os.replace`).
 
 ```json
 {
-  "stage": "prepare|run|analyse",
+  "stage": "prepare|dock|analyse",
   "status": "ok|failed",
   "started": "ISO-8601",
   "finished": "ISO-8601",
-  "artifacts": [{"path": "<relative to run_dir>", "sha256": "<hex>"}],
+  "artifacts": ["<path relative to run_dir>"],
   "metrics": {},
   "warnings": [],
   "error": null
 }
 ```
 
-Exit codes: `0` = ok, `1` = stage failed (status.json still written),
-`2` = usage error (status.json may not exist).
+Exit codes (all subcommands): `0` = ok, `1` = stage/run failure
+(status.json still written), `2` = usage error, `3` = internal error.
 
 ### Per-stage metrics
 
-**prepare** — `n_ligands`, `ligands` (names), `receptor_chains`,
-`hetatm_resnames` (receptor non-ATOM residues found), `ligand_hashes`
-({name: sha256 of pdbt}), `receptor_file` / `autobox_file` (prepared
-pdbt filenames inside `prep/`).
+**prepare** — `n_ligands`, `ligands` (sorted names), `receptor_chains`,
+`hetatm_resnames`, `receptor_file` / `autobox_file` (filenames in `prep/`).
 
-**run** — `recipe` ({name, sha256}), `seed`, `threads`, `resolved_box`
-({center, size} — from `[WORKFLOW] Search box:` stdout when autobox),
-`ligand_hashes` and `receptor_hash` (prepared input hashes used),
-`receptor_file` (prepared receptor filename inside `prep/`),
-`output_dir` (current attempt), `per_ligand` ({name: {energies:
-[per model], best, nconfs, torsdof, rmsd}}), plus any extra log.csv
-columns (`E_corrected`, `BE_ligwater`, `BE_recwater`).
+**dock** — `recipe` (recipe name), `config` (`--config` file stem or
+null), `seed`, `threads`, `resolved_box`
+({center, size} — scraped from vinardock's `Search box:` log line when
+it emits one (autobox), else computed from the reference bounding box +
+pad or the manual flags), `output_dir` and `vinardock_log` (paths in the
+current attempt), `receptor_file`, `receptor_path`, `per_ligand`
+({name: {energies,
+best, nconfs, torsdof, rmsd} — or {status: 'failed', error} for a
+ligand that failed; plus `dG` or `reference_state` in those modes}).
+`best` is the log.csv score cross-checked against `min(energies)`.
 
 **analyse** — `analyzed_pose` ({name: "k of N"}), `interactions`
-({name: {hbonds, salt_bridges, pi_stacks, hydrophobic, …}}), `report`
-(path to report.md), `dock_status_sha256` (analysis input gate).
+({name: counts per category}), `pose`, `report`.
 
-## manifest.json
+## Gates and resume
 
-Written by the coordinator at run start, extended after each gate.
-`inputs` paths are the original absolute paths (not copies); each entry
-also carries the sha256 captured at run start and re-checked on resume.
+The coordinator's only check is status + filesystem state — there is no
+hashing anywhere:
 
-```json
-{
-  "created": "ISO-8601",
-  "tools": {
-    "vinardock": {"path": "…", "sha256": "…", "build_id": "…", "source": "local|download"},
-    "obabel-vinardock": {"path": "…", "sha256": "…", "version": "…"},
-    "plip": {"version": "…", "openbabel_bindings": "…"},
-    "param": {"param.dat": "<sha256>", "param.TxT.dat": "<sha256>", "dun2010bbdep.bin": "<sha256>"}
-  },
-  "env": {"cpu": "…", "nproc": 0, "threads": 0, "hostname": "…", "python": "…"},
-  "inputs": {"receptor": {"path": "…", "sha256": "…"}, "ligands": [{"path": "…", "sha256": "…"}]},
-  "run": {"seed": 0, "conformations": 0, "recipe": {"name": "…", "sha256": "…"},
-          "box": {"mode": "manual|autobox"}, "resolved_box": {},
-          "config_sha256": "…"},
-  "stages": {"prepare": "ok", "run": "ok", "analyse": "ok"}
-}
-```
+- A stage is **skipped** on re-run iff its `status.json` says `ok`,
+  every listed artifact exists and is non-empty, and `started >=` its
+  predecessor's `finished` — timestamps are parsed as ISO-8601
+  (a `Z` suffix is tolerated) and compared as datetimes, not strings.
+  A re-run predecessor makes downstream stages stale automatically.
+  `--force` re-runs everything.
+- After a stage runs, `status.json` must say `ok`. Otherwise stop and
+  report `error` + the log tail (`prep/prep.log`, or the newest
+  `dock/attempt-*/vinardock.log`).
+- A stage script may exit 0 with `status: "failed"` — trust the file.
+  Conversely exit ≠0 without a status.json is a usage/crash error.
+- Changed inputs, recipe, config flags, or tools are **not** detected —
+  use a new run dir (or `--force`) when anything upstream changed.
 
-## Gates (coordinator verification after each stage)
+## Validation (this is where failures are caught)
 
-After every stage script returns, the coordinator MUST:
+Corruption/bad output is caught by *structural* checks, not hashes:
 
-1. Read the stage's `status.json`.
-2. `status == "ok"` AND every listed artifact exists AND its sha256
-   recomputes to the recorded value → proceed.
-3. Otherwise → stop. Report the `error` field and the last ~20 lines of
-   the stage log (`prep/prep.log`, `dock/vinardock.log`) to the user.
+- prepare: receptor must contain ATOM records; every prepared ligand
+  must contain atoms and a `TORSDOF` record; 2D inputs get `--gen3d`.
+  The autobox reference follows the same rules and must be exactly
+  one molecule (`.pdbt`/`.smi`/`.sdf`/`.mol2`/`.pdb`); SMILES
+  references always get `--gen3d`.
+- dock: `log.csv` header recognized, score column matched by content
+  (`vinardo score …`, `E_corrected`, `binding_energy`, …) and
+  cross-checked against pdbt model energies (fail on divergence
+  > 0.05 kcal/mol), per-ligand conformer count must match parsed
+  REMARK 980 energies, autobox reference with zero coordinate extent
+  is fatal (degenerate input would otherwise produce a bogus box),
+  mutation-dg must produce a `E_WT/E_MUT/dG` table — a normal
+  `nConfs` table means vinardock ignored `--calc_mutate_dG` and the
+  stage fails closed.
+- analyse: PLIP runs per ligand; a ligand whose analysis fails is a
+  warning, the stage fails only if *all* analyses fail. `report.md`
+  is deleted before the stage runs so a stale report can never sit
+  next to a failed status.
+- analyse XML: PLIP's XML must contain exactly one bindingsite
+  matching the target ligand (hetid/chain/position) — PLIP's exit
+  code is not trusted. The site lives under `bindingsites` with an
+  `identifiers` element (`hetid`/`chain`/`position`); its
+  `interactions` block lists `hydrophobic_interactions`,
+  `hydrogen_bonds`, `salt_bridges`, `pi_stacks`,
+  `pi_cation_interactions`, `halogen_bonds`, `water_bridges`,
+  `metal_complexes`, each child's `resnr`/`restype`/`reschain`
+  naming the contacting residue. A missing list = zero
+  interactions; zero sites or no site matching the ligand = failed
+  analysis.
+- Sanity warnings (never fatal): best score > 0, pose centroid outside
+  the resolved box, zero PLIP interactions for a ligand.
 
-A stage script may return exit 0 with `status: "failed"` — trust the
-file, not the exit code alone. Conversely exit ≠0 without a status.json
-means a usage/crash error — read stderr.
+## Partial failures
 
-## Resume
-
-- A stage whose `status.json` is `ok` and whose artifacts still
-  hash-match is **skipped** unless the user passes `--force` semantics
-  (coordinator decides; scripts always re-run when invoked — skipping is
-  a coordinator decision).
-- `workflow.py` records input paths/hashes and provenance at start, checks
-  all artifact hashes after each stage, and refuses to resume when
-  inputs, tools, recipe, or settings differ. A stage rerun is fresh:
-  `run.py` creates a new `dock/attempts/<signature>[-N]/DOCK` directory;
-  it never deletes old outputs or invokes vinardock's mtime-based cache.
-  `dock/status.json.metrics.output_dir` is the current path.
-- When checking an existing run, compare its `ligand_hashes` and
-  `receptor_hash` to current preparation and the analysis' stored
-  `dock_status_sha256` to the current dock status. Never reuse analysis
-  for a different docking result.
-- `manifest.json.stages` records which stages passed, so the coordinator
-  can state precisely what was re-used vs re-executed.
+A ligand that fails (zero conformers, missing output, N/A dG) is
+recorded in `per_ligand` with `status: 'failed'` and listed in
+`warnings` — the stage still reports `ok` if at least one ligand
+succeeded, and report.md lists failures explicitly. The same applies
+to analyse: a failed PLIP run appears in a "Failed ligand analyses"
+report section and only an all-ligand failure fails the stage.
+Structural log.csv problems (unknown header, duplicate rows) are
+still fatal.

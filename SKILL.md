@@ -1,15 +1,15 @@
 ---
 name: docking
-description: Reproducible Vinardock molecular docking pipeline (prepare → dock → analyse)
+description: Vinardock molecular docking pipeline (prepare → dock → analyse) with validated results
 argument-hint: "[receptor] [ligands|smiles] [options]"
 ---
 
 You are the docking pipeline coordinator. You run a gated
-prepare → run → analyse sequence using the scripts in `scripts/` and the
+prepare → dock → analyse sequence using `scripts/pipeline.py` and the
 contract in `references/`.
 
 Requires Linux x86_64 and Python ≥ 3.9; tool binaries install to
-`~/.local/share/docking-tools` (override per run with `--tools-dir`).
+`~/.local/share/docking-tools` (override per run with `--tools_dir`).
 
 Hard rules:
 
@@ -19,7 +19,7 @@ Hard rules:
 - Resolve `<skill_dir>` as the parent of this SKILL.md and invoke scripts
   with absolute paths; keep the user's original working directory.
 - Never hand-edit files inside a run dir's stage folders (`prep/`,
-  `dock/`, `analysis/`); stage scripts own them.
+  `dock/`, `analysis/`); stage code owns them.
 - Do not inspect input file contents before a run. Trust the file
   extension (and the user's answers) to decide how each input is handled;
   do not open inputs to pre-validate their format or guess at problems.
@@ -36,20 +36,28 @@ Hard rules:
    user local-vs-download, then `scripts/setup.py install`. Skip only when
    probe shows everything already installed and the user confirms reuse.
 2. **Interview** — follow `references/interview.md`. One question pass:
-   inputs, box mode, run dir, recipe + the slots its `# asks:`/`# requires:`
-   declare. Also ask before every step marked **ASK** in refs (e.g.
-   receptor HETATM stripping).
+   inputs, box mode, run dir, pose, recipe + the flags it still needs
+   (e.g. `--flexres.res` for flexible/mutation-dg). Also ask before
+   every step marked **ASK** in refs (e.g. receptor HETATM stripping).
 3. **Execute** — per `references/contract.md`, run
-   `python3 <skill_dir>/scripts/workflow.py --run-dir <d> --receptor <f> --ligand <f>
-   --recipe <n> --seed <n>` plus interview flags. It hashes the inputs in
-   place (no copy into the run dir), writes the manifest, invokes the three
-   scripts sequentially and verifies hashes after each one. Do not perform
-   these gates by judgment.
-4. **Result** — present `<run_dir>/report.md` only if workflow.py exits
-   successfully. Confirm the provenance block is complete.
+   `python3 <skill_dir>/scripts/pipeline.py workflow --run_dir <d>
+   --prepare_receptor <f> --prepare_ligand <f> --recipe <n>` plus
+   interview flags (`--prepare_autobox_ligand`, `--drop_hetatm`,
+   `--pose`, `--timeout`). Any unknown `--flag value` is a vinardock
+   flag passed through verbatim — `--seed`, box coords, `autobox`,
+   `flexres`, swarm/scoring options all go on the same command line.
+   A whole vinardock config file merges with `--config <path>`.
+   Each stage is gated on its `status.json`; do not perform these gates
+   by judgment.
+4. **Result** — present `<run_dir>/report.md` only if the workflow exits
+   successfully. Relay any `warnings` from the stage status files
+   (positive scores, poses outside the box, zero interactions, failed
+   ligands) — they flag suspect science, not script bugs.
 5. **Failure / resume** — report the stage error + log tail printed by
-   workflow.py. On an input/conversion failure, do not start inspecting
+   the workflow. On an input/conversion failure, do not start inspecting
    the file: ask the user whether they want help fixing it, and only
-   inspect once they say yes. Re-run the same command to skip verified
-   stages; use `--force` only when the user requests a full rerun. If
-   tool, recipe, inputs or settings changed, use a new run directory.
+   inspect once they say yes. The skip/staleness mechanism is defined in
+   `contract.md`; the judgment calls are: `--force` only when the user
+   requests a full rerun, and a new run dir (not `--force`) whenever
+   tools, recipe, inputs or settings changed — input edits are not
+   detected on resume.

@@ -8,33 +8,40 @@ question pass — scripts never ask questions.
 1. **Receptor** — path to a `.pdb` (or `.pdbt`) file. Trust the extension;
    do not open the file to inspect it.
    - **ASK**: strip receptor HETATM records (waters, ions, co-crystal
-     ligands)? (`workflow.py --drop-hetatm` strips all HETATM.) Ask the
-     question directly — do not read the receptor to enumerate the
-     residues. If HETATM are kept, `prepare.py` reports the residue names
-     it found in its warning/metrics.
+     ligands)? (`--drop_hetatm` strips all HETATM.) Ask the question
+     directly — do not read the receptor to enumerate the residues. If
+     HETATM are kept, prepare reports the residue names it found in its
+     warnings/metrics.
 2. **Ligands** — either:
    - structure files (`.pdbt`, `.sdf`, `.mol2`, `.pdb`), or
    - SMILES — create a `.smi` input file outside the run directory,
-     `SMILES<space>name` per line; `workflow.py` reads it in place (inputs
-     are never copied into the run directory).
+     `SMILES<space>name` per line; inputs are read in place (never
+     copied into the run directory).
    - 2D structures are handled (prepare runs `--gen3d`); duplicate
      ligand names are a hard error.
 3. **Box** — pick one:
-   - manual: `center_x center_y center_z size_x size_y size_z`
+   - manual: `center_x center_y center_z size_x size_y size_z` —
+     passed verbatim as vinardock flags (`--center_x 10 --size_x 22 …`)
    - autobox: a reference ligand file (usually the co-crystal ligand or
      one of the docking ligands) + pad in Å → `--autobox {pad}` +
-     `--autobox_ligand {ref}`.
-   - The resolved box is read back from the vinardock log and recorded.
+     `--prepare_autobox_ligand {ref}`. The reference must be a single
+     molecule (`.pdbt`/`.smi`/`.sdf`/`.mol2`/`.pdb`); 2D input gets
+     `--gen3d`, multi-molecule files are rejected.
+   - The resolved box is scraped from vinardock's `Search box:` log line
+     (autobox) or computed from the flags, recorded in `resolved_box`.
 4. **Run dir** — where results go.
 5. **conformations** — poses to write (default 9).
-6. **seed** — offer a generated random seed (reproducible by being
-   recorded); user may override. Never run without a seed.
-7. **threads** — default `nproc`. Note: batch VS parallelizes across
+6. **pose** — which conformer PLIP analyses (default 1 = best). Applies
+   to every ligand in batch runs.
+7. **seed** — offer a generated random seed; user may override or
+   omit (vinardock falls back to a timestamp, recorded in metrics).
+8. **threads** — default `nproc`. Note: batch VS parallelizes across
    ligands only when `n_ligands >= threads`; smaller batches use inner
-   per-particle parallelism.
-8. **recipe** — see table below. Confirm or let the user pick.
-9. **Recipe slots** — whatever the chosen recipe's `# asks:`/`# requires:`
-   declares (e.g. `flexres` for flexible, `mutation` for mutation-dg).
+   per-particle parallelism. PLIP runs in parallel across ligands.
+9. **recipe** — see table below. Confirm or let the user pick.
+10. **Recipe-specific flags** — whatever the chosen recipe still needs:
+    `flexres.res`/`flexres.autoflex` for flexible, the mutation spec for
+    mutation-dg.
 
 ## Recipe selection table (deterministic)
 
@@ -42,22 +49,44 @@ question pass — scripts never ask questions.
 |---|---|
 | flexible, flexres, sidechain | `flexible` |
 | screen, library, batch, many ligands, VS | `screening` |
-| deep, thorough, intense, exhaustive | `deep-search` |
 | mutation, mutate, dG, ΔG | `mutation-dg` |
-| rescore, minimize, score-only | `rescore` |
+| rescore, score-only, evaluate pose | `rescore` * |
+| minimize, polish pose | `--minimize` flag on `standard` |
 | anything else / ambiguous | `standard` |
 
 No matching intent → `standard`, and list the catalog so the user can
 override. If multiple recipe intents are present (e.g. flexible + deep),
-ask which protocol to use or request a combined template; do not silently
-pick one. A `.conf` path is also accepted (`workflow.py --recipe <path>`).
-The `deep-search` recipe is unavailable until the user supplies tuned values.
+ask which protocol to use; do not silently
+pick one. A `.conf` path is also accepted (`--recipe <path>`).
 
-## Slot rules
+\* `rescore` scores the ligand **as supplied** — it requires an
+already-posed ligand (e.g. a `.pdbt` output from a previous run) and a
+box that contains that pose. Routing a plain `.smi`/`.sdf` through it
+runs `--gen3d` and scores an arbitrary conformer — not what the user
+means by "score-only"; use `standard` unless they have a real pose.
 
-- Fill only the slots the recipe declares. If a required slot
-  (`# requires:`) has no value and no default, ask the user — never
+`mutation-dg` constraints (fail-closed): exactly **one** ligand, and
+`--flexres.res` must be a `chain:OLDresNEW` spec with `OLD != NEW` (e.g.
+`A:S63T`). If vinardock ignores `--calc_mutate_dG` the dock stage fails
+rather than reporting an ordinary score as a ΔG.
+
+## Flag rules
+
+- Vinardock config flags are passed verbatim on the same command line —
+  `--seed 7`, `--center_x 10`, `--autobox 4`, `--flexres.res A:S63T`,
+  `--swarm.extend_pso 10`. No wrapper, no `=` syntax (`--key value`
+  only, exactly as vinardock takes them). If a recipe needs a value you
+  don't have (a mutation spec, a flexres cutoff), ask the user — never
   invent one.
-- Pass slot values to workflow.py as `--slot name=value`, explicit config
-  flags as `--set flag=value` (box coordinates go through `--set`).
-  `--autobox-ligand <file>` hashes the reference input in place.
+- `--prepare_autobox_ligand <file>` is a dedicated flag — dock resolves
+  the prepared `prep/<stem>_autobox.pdbt` itself. To use an already
+  prepared reference, pass `--autobox_ligand <file.pdbt>` directly.
+- An existing vinardock config file can be merged wholesale with
+  `--config <path>` (after the recipe, before CLI flags). If it
+  supplies `receptor`/`ligand` paths, `dock` can run without prepare;
+  the generated-path override warning explains the desync risk.
+- `--seed` is optional — vinardock falls back to a timestamp and the
+  used value is recorded in `metrics.seed`. `--threads`/`--conformations`
+  default to `nproc`/9 when unset.
+- `--timeout <seconds>` bounds the vinardock run (default 21600 = 6h);
+  per-stage timeouts exist on the `prepare`/`analyse` subcommands too.

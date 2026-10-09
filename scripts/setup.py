@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import hashlib
-import importlib.metadata
 import json
 import os
 import platform
@@ -57,28 +56,19 @@ def release_assets(name):
     return [legacy, modern] if libc_version() and libc_version() < minimum else [modern, legacy]
 
 
-def build_id(path):
-    if not shutil.which('readelf'):
-        return None
-    result = subprocess.run(['readelf', '-n', str(path)], capture_output=True, text=True)
-    match = re.search(r'Build ID:\s*([0-9a-f]+)', result.stdout)
-    return match.group(1) if match else None
-
-
 def candidate(path, name):
+    """Smoke-test a binary: must exist, be executable, and actually launch."""
     if not path or not path.is_file() or not os.access(path, os.X_OK):
         return None
     path = path.resolve()
     flags = ['-V'] if name == 'obabel-vinardock' else ['--help']
     result = subprocess.run([str(path), *flags], capture_output=True, text=True, timeout=20)
-    version = (result.stdout + result.stderr).splitlines()
     if name == 'obabel-vinardock' and (result.returncode != 0 or not result.stdout.startswith('Open Babel')):
         raise RuntimeError(f'{path} cannot run: {result.stderr.strip()[:300]}')
     if name == 'vinardock' and not result.stdout.startswith('2Vinardo molecular docking program'):
         raise RuntimeError(f'{path} cannot run: {result.stderr.strip()[:300]}')
-    return {'found': True, 'path': str(path), 'sha256': digest(path),
-            'build_id': build_id(path), 'version_line': version[0] if version else '',
-            'source': 'local'}
+    version = (result.stdout + result.stderr).splitlines()
+    return {'path': str(path), 'version_line': version[0] if version else ''}
 
 
 def probe():
@@ -101,12 +91,57 @@ def probe():
                         {'path': str(path.resolve()), 'error': str(error)})
         result[name] = found
     result['unusable'] = unusable
-    result['param'] = []
-    for directory in (Path.cwd() / 'param', TOOLS / 'param'):
-        if directory.is_dir() and all((directory / name).is_file() for name in PARAM_HASHES):
-            result['param'].append({'path': str(directory.resolve()),
-                                    'sha256': {name: digest(directory / name) for name in PARAM_HASHES}})
+    result['param'] = [str(directory.resolve())
+                       for directory in (Path.cwd() / 'param', TOOLS / 'param')
+                       if directory.is_dir() and all((directory / name).is_file() for name in PARAM_HASHES)]
     result['plip'] = (TOOLS / 'plip-venv/bin/plip').is_file()
+    found = shutil.which('vinardock-pipeline')
+    result['launcher'] = str(Path(found).resolve()) if found else None
+    return result
+
+
+def launcher_dir():
+    """Where to link vinardock-pipeline: ~/.local/bin when on PATH, else
+    /usr/local/bin when writable, else ~/.local/bin with a PATH warning.
+    Arbitrary writable PATH dirs are never picked — a stray link in an
+    unrelated app's bin dir is worse than a PATH warning."""
+    local = Path.home() / '.local/bin'
+    dirs = {Path(d) for d in os.environ.get('PATH', '').split(os.pathsep) if d}
+    if local in dirs:
+        return local, None
+    system = Path('/usr/local/bin')
+    if system in dirs and os.access(system, os.W_OK):
+        return system, None
+    return local, str(local) + ' is not on PATH — add it or call the script by path'
+
+
+def make_launcher(replace=False):
+    """Write a wrapper that execs the install-time interpreter on
+    pipeline.py — a symlink would need pipeline.py itself to be
+    executable, which a fresh download does not guarantee."""
+    script = (ROOT / 'scripts/pipeline.py').resolve()
+    body = f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n'
+    found = shutil.which('vinardock-pipeline')
+    if found:
+        path = Path(found)
+        if (path.is_symlink() and path.resolve() == script) or \
+           (path.is_file() and not path.is_symlink()
+            and path.read_text(errors='replace') == body):
+            return {'path': found, 'note': 'already installed'}
+    directory, warning = launcher_dir()
+    target = directory / 'vinardock-pipeline'
+    if target.exists() or target.is_symlink():
+        if not replace:
+            raise FileExistsError(f'{target} exists; pass --replace to overwrite')
+        target.unlink()
+    directory.mkdir(parents=True, exist_ok=True)
+    target.write_text(body)
+    target.chmod(0o755)
+    result = {'path': str(target)}
+    if found and Path(found) != target:
+        result['warning'] = f'{found} is earlier on PATH and will shadow this'
+    elif warning:
+        result['warning'] = warning
     return result
 
 
@@ -118,18 +153,18 @@ def fetch(url, target, expected):
         raise ValueError('sha256 mismatch for ' + url)
 
 
-def copy_verified(source, target, replace=False):
-    if source.resolve() != target.resolve():
-        with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as temp:
-            temp_path = Path(temp.name)
-            with source.open('rb') as inp:
-                shutil.copyfileobj(inp, temp)
-        temp_path.chmod(source.stat().st_mode & 0o777)
-        if target.exists() and digest(target) != digest(temp_path) and not replace:
-            temp_path.unlink()
-            raise FileExistsError(f'{target} exists with different contents; choose another tools dir or confirm replacement separately')
-        os.replace(temp_path, target)
-    return digest(target)
+def install_copy(source, target, replace=False):
+    """Copy a file into the tools dir; refuses to clobber without --replace."""
+    if source.resolve() == target.resolve():
+        return
+    if target.exists() and not replace:
+        raise FileExistsError(f'{target} exists; pass --replace to overwrite')
+    with tempfile.NamedTemporaryFile(dir=target.parent, delete=False) as temp:
+        temp_path = Path(temp.name)
+        with source.open('rb') as inp:
+            shutil.copyfileobj(inp, temp)
+    temp_path.chmod(source.stat().st_mode & 0o777)
+    os.replace(temp_path, target)
 
 
 def download_binary(name, target, replace=False):
@@ -144,7 +179,7 @@ def download_binary(name, target, replace=False):
             except (RuntimeError, subprocess.TimeoutExpired) as error:
                 last_error = error
                 continue
-            copy_verified(source, target, replace=replace)
+            install_copy(source, target, replace=replace)
             return asset
         raise RuntimeError(f'no released {name} asset runs on this host: {last_error}')
 
@@ -155,12 +190,7 @@ def install(args):
     summary = {}
     receipt = TOOLS / 'install.json'
     previous = json.loads(receipt.read_text()) if receipt.is_file() else {}
-    if 'download' in (args.vinardock, args.obabel_vinardock):
-        with urllib.request.urlopen(RELEASE + 'sha256sums.txt', timeout=90) as response:
-            published = {name: checksum for checksum, name in
-                         (line.split()[:2] for line in response.read().decode().splitlines() if line.strip())}
-        if any(published.get(name) != expected for name, expected in CHECKSUMS.items()):
-            raise ValueError('release sha256sums.txt differs from pinned checksums')
+    local_installs = []
     for name, selected in [('vinardock', args.vinardock),
                            ('obabel-vinardock', args.obabel_vinardock)]:
         target = TOOLS / 'bin' / name
@@ -171,16 +201,11 @@ def install(args):
             source = Path(selected).expanduser().resolve()
             if not candidate(source, name):
                 raise ValueError('not an executable: ' + str(source))
-            copy_verified(source, target, replace=args.replace)
-            if source == target.resolve():
-                origin = previous.get(name, {}).get('source', '')
-                if origin == 'local ' + str(target):
-                    pinned = next((asset for asset, checksum in CHECKSUMS.items()
-                                   if checksum == digest(target)), None)
-                    origin = 'release v1.0.0/' + pinned if pinned else origin
-            else:
-                origin = ''
-            origin = origin or 'local ' + str(source)
+            same = source == target.resolve()
+            install_copy(source, target, replace=args.replace)
+            origin = (previous.get(name, {}).get('source') or 'local ' + str(target)) if same \
+                else 'local ' + str(source)
+            local_installs.append(name)
         summary[name] = candidate(target, name)
         summary[name]['source'] = origin
         if origin.startswith('release ') and origin.rsplit('/', 1)[1] != ASSETS[name][0]:
@@ -191,21 +216,15 @@ def install(args):
             with tempfile.TemporaryDirectory() as temp:
                 source = Path(temp) / name
                 fetch(SOURCE + 'param/' + name, source, expected)
-                copy_verified(source, target, replace=args.replace)
+                install_copy(source, target, replace=args.replace)
             origin = 'source commit 11caaa8'
         else:
             source = Path(args.param).expanduser().resolve() / name
             if not source.is_file():
                 raise FileNotFoundError(source)
-            copy_verified(source, target, replace=args.replace)
-            if source == target.resolve():
-                origin = previous.get('param', {}).get(name, {}).get('source', '')
-                if origin == 'local ' + str(target) and digest(target) == expected:
-                    origin = 'source commit 11caaa8 (sha256 verified)'
-            else:
-                origin = ''
-            origin = origin or 'local ' + str(source)
-        summary.setdefault('param', {})[name] = {'path': str(target), 'sha256': digest(target), 'source': origin}
+            install_copy(source, target, replace=args.replace)
+            origin = 'local ' + str(Path(args.param).expanduser().resolve())
+        summary.setdefault('param', {})[name] = {'path': str(target), 'source': origin}
     plip = TOOLS / 'plip-venv/bin/plip'
     if not args.skip_plip and not plip.is_file():
         uv = shutil.which('uv')
@@ -218,19 +237,27 @@ def install(args):
         py = TOOLS / 'plip-venv/bin/python'
         info = subprocess.check_output([str(py), '-c',
             "import importlib.metadata as m; print(m.version('plip'), m.version('openbabel'))"], text=True).strip().split()
-        summary['plip'] = {'path': str(plip), 'sha256': digest(plip),
+        summary['plip'] = {'path': str(plip),
                            'version': info[0], 'openbabel_bindings': info[1]}
+    # regenerate help references only for tools installed from a local path —
+    # the checked-in files already document the pinned release builds
     refs = ROOT / 'references'
     for name, command in [('vinardock-help.txt', [str(TOOLS / 'bin/vinardock'), '--help']),
                           ('obabel-vinardock-help.txt', [str(TOOLS / 'bin/obabel-vinardock'), '-H'])]:
+        tool = 'vinardock' if name.startswith('vinardock') else 'obabel-vinardock'
+        if tool not in local_installs:
+            continue
         output = subprocess.run(command, capture_output=True, text=True)
         text = output.stdout + output.stderr
         if name == 'vinardock-help.txt':
             text = re.sub(r'(--seed arg[^\n]*?\(default: )\d+(\))', r'\g<1><timestamp>\2', text)
         (refs / name).write_text(text)
-    if plip.is_file():
-        output = subprocess.run([str(plip), '--help'], capture_output=True, text=True)
-        (refs / 'plip-help.txt').write_text(output.stdout + output.stderr)
+    if args.launcher:
+        summary['launcher'] = make_launcher(replace=args.replace)
+    elif sys.stdin.isatty():
+        directory, _ = launcher_dir()
+        if input(f'install vinardock-pipeline launcher in {directory}? [y/N] ').strip().lower() == 'y':
+            summary['launcher'] = make_launcher(replace=args.replace)
     (TOOLS / 'install.json').write_text(json.dumps(summary, indent=2) + '\n')
     return summary
 
@@ -244,6 +271,8 @@ def main():
     install_parser.add_argument('--obabel-vinardock', required=True)
     install_parser.add_argument('--param', default='download')
     install_parser.add_argument('--skip-plip', action='store_true')
+    install_parser.add_argument('--launcher', action='store_true',
+                                help='symlink vinardock-pipeline into a PATH dir without asking')
     install_parser.add_argument('--replace', action='store_true')
     args = parser.parse_args()
     print(json.dumps(probe() if args.action == 'probe' else install(args), indent=2))

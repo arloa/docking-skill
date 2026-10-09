@@ -10,25 +10,21 @@ as `probe` deliberately inspects that directory.
 python3 "<skill_dir>/scripts/setup.py" probe
 ```
 
-Prints JSON per tool: `{found, path, sha256, build_id, version_line}`.
-A binary that exists but cannot launch is **not** silently dropped: it
-is listed under `unusable` as `{path, error}` (e.g. a build requiring a
-newer glibc). Show those to the user — "not found" for a tool that is
-actually present usually means an unusable build.
-Search scope is deliberately narrow — **PATH and the literal current
-working directory (`pwd`) only**, plus the existing tools dir:
+Prints JSON per tool: `{path, version_line}` for launchable binaries;
+binaries that exist but cannot launch are listed under `unusable` with
+the error — "not found" for a present tool usually means an unusable
+build. Search scope is deliberately narrow — **PATH, the literal pwd,
+and the existing tools dir only**:
 
-- `vinardock` — PATH lookup, `<pwd>/vinardock`, `tools/bin/vinardock`
-- `obabel-vinardock` — PATH lookup, `<pwd>/obabel-vinardock`,
-  `tools/bin/obabel-vinardock` (bare `obabel` is NEVER probed or used)
-- `param` — `<pwd>/param/` and `tools/param/` containing at least
-  `param.dat` + `param.TxT.dat`
+- `vinardock`, `obabel-vinardock` — PATH, `<pwd>/<name>`,
+  `tools/bin/<name>` (bare `obabel` is NEVER probed or used)
+- `param` — `<pwd>/param/` and `tools/param/` (needs `param.dat` +
+  `param.TxT.dat` minimum)
 - `plip` — `tools/plip-venv/bin/plip`
+- `launcher` — resolved path of `vinardock-pipeline` on PATH, or `null`
 
-It does not scan the filesystem and never guesses directories
-(`./bin`, `~/Calculos`, etc. are out of scope by design). A binary that
-lives elsewhere is simply "not found" — point it out explicitly with
-`setup.py install --vinardock /abs/path` if needed.
+No filesystem scanning, no guessed directories — a binary elsewhere is
+"not found"; pass it explicitly via `setup.py install --vinardock /abs/path`.
 
 ## 2. Ask (coordinator)
 
@@ -47,38 +43,46 @@ to reuse.
 python3 "<skill_dir>/scripts/setup.py" install \
     --vinardock <abs-path|download> \
     --obabel-vinardock <abs-path|download> \
-    [--param <abs-dir|download>] [--skip-plip]
+    [--param <abs-dir|download>] [--skip-plip] [--launcher]
 ```
 
 - `local` (a path) → copied into `~/.local/share/docking-tools/bin/`
-  (copied, not symlinked — freezes the artifact) and re-hashed.
+  (copied, not symlinked — freezes the artifact).
 - `download` → release `v1.0.0` assets from
-  `github.com/arloa/Vinardock-exec`, verified against `sha256sums.txt`.
-  Each tool has a modern build and an `-ubuntu22.04` build; the modern
-  one is tried first and the fallback is selected when glibc is older
-  than the build's minimum (`vinardock` 2.39, `obabel-vinardock` 2.38).
-  Selection is not decided by glibc alone: whichever asset is chosen
-  must pass the launch smoke test, and the script falls back to the
-  other asset if it does not (the `obabel-vinardock` ubuntu22.04 build
-  is dynamically linked against `libopenbabel.so.7`, so it only works
-  where Open Babel 3.1.1 is installed).
-  `param/` is fetched from pinned source commit `11caaa8` and each file is checked against a built-in sha256: the `v1.0.0` tag itself predates the parameter files.
-- PLIP → `uv venv --python <invoking Python> <tools_dir>/plip-venv` then
-  install pinned PLIP and dependencies (including the self-contained `openbabel` 3.2.1
-  wheel — note the version split vs the obabel-vinardock CLI; it is
-  recorded in the manifest/report as a known caveat).
-- Both executables are smoke-tested; a binary that cannot launch is rejected
-  even when its checksum is correct. For `download`, the smoke test is what
-  picks the working asset (modern vs `-ubuntu22.04`) — if neither launches,
-  the install fails instead of leaving a broken tool in place. On hosts
-  where `obabel-vinardock-linux-amd64-ubuntu22.04` is selected but
-  `libopenbabel.so.7` is missing, use an explicitly approved compatible
-  local build or request a portable release.
-- A subsequent replacement of an installed binary requires an explicit
-  `--replace` flag, after the user approves the selected source.
-- Regenerates `references/*-help.txt` from the resolved binaries;
-  `vinardock-help.txt` replaces only the changing timestamp seed default
-  with `<timestamp>` so regenerated help can be compared across runs.
+  `github.com/arloa/Vinardock-exec`, verified against the sha256 pinned
+  in `CHECKSUMS`. Each tool has a modern build and an `-ubuntu22.04`
+  fallback; glibc picks the candidate order (`vinardock` needs ≥2.39,
+  `obabel-vinardock` ≥2.38), and the launch smoke test picks the winner
+  — if neither launches, install fails rather than leaving a broken
+  tool. Caveat: the ubuntu22.04 obabel-vinardock needs
+  `libopenbabel.so.7` (Open Babel 3.1.1 installed); without it, use an
+  approved local build. `param/` is fetched from pinned commit `11caaa8`
+  with per-file sha256 (the `v1.0.0` tag predates the parameter files).
+- PLIP → `uv venv --python <invoking Python> <tools_dir>/plip-venv` +
+  pinned deps including the self-contained `openbabel` 3.2.1 wheel —
+  a different Open Babel than the obabel-vinardock CLI uses; noted in
+  report.md's provenance.
+- Replacing an installed binary needs explicit `--replace` after the
+  user approves the source.
+- Launcher: after installing, an interactive run offers to write a
+  `vinardock-pipeline` wrapper (`exec <install-python> <pipeline.py>
+  "$@"`) into `~/.local/bin` when it is on PATH, else `/usr/local/bin`
+  when writable; otherwise `~/.local/bin` with a warning that it is
+  not on PATH. Arbitrary writable PATH dirs are never picked. A
+  wrapper rather than a symlink because it needs no exec bit on
+  `pipeline.py` and pins the interpreter that ran install. An existing
+  PATH entry pointing at the same script is detected first
+  (`shutil.which`), so re-runs are a no-op; a second entry earlier on
+  PATH is reported as shadowing.
+  Non-interactive runs never prompt — pass `--launcher` to create it
+  (after the user approves). An existing link to the same script is a
+  no-op; a different file needs `--replace`.
+- `references/*-help.txt` regenerate only for **local** installs —
+  the checked-in files already document the pinned release builds.
+  `vinardock-help.txt` masks the timestamp seed default as `<timestamp>`
+  so help diffs compare across runs.
 
-Prints a JSON summary of what was installed — the coordinator merges it
-into `manifest.json.tools`.
+Prints a JSON summary of what was installed (`{path, version_line,
+source}` per tool, plus param files and PLIP versions) and writes the
+same to `<tools>/install.json`; `analyse` quotes it in report.md's
+provenance block.
