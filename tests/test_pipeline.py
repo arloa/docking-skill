@@ -587,53 +587,6 @@ class SetupTests(unittest.TestCase):
             finally:
                 os.chdir(old)
 
-    def test_release_assets_cover_both_builds_and_order_by_glibc(self):
-        setup = module('setup')
-        for name in ('vinardock', 'obabel-vinardock'):
-            modern, legacy, minimum = setup.ASSETS[name]
-            self.assertIn(modern, setup.CHECKSUMS)
-            self.assertIn(legacy, setup.CHECKSUMS)
-            self.assertNotEqual(modern, legacy)
-        with patch.object(setup, 'libc_version', return_value=(2, 35)):
-            self.assertEqual(setup.release_assets('obabel-vinardock')[0],
-                             'obabel-vinardock-linux-amd64-ubuntu22.04')
-        with patch.object(setup, 'libc_version', return_value=(2, 39)):
-            self.assertEqual(setup.release_assets('obabel-vinardock')[0],
-                             'obabel-vinardock-linux-amd64')
-        with patch.object(setup, 'libc_version', return_value=()):
-            self.assertEqual(setup.release_assets('obabel-vinardock')[0],
-                             'obabel-vinardock-linux-amd64')
-
-    def test_download_falls_back_to_launchable_asset(self):
-        setup = module('setup')
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            release = root / 'release'
-            release.mkdir()
-            broken = release / 'obabel-vinardock-linux-amd64'
-            broken.write_text('#!/bin/sh\necho "GLIBC_2.38 not found" >&2\nexit 1\n')
-            broken.chmod(0o755)
-            working = release / 'obabel-vinardock-linux-amd64-ubuntu22.04'
-            working.write_text('#!/bin/sh\necho "Open Babel 3.1.1"\n')
-            working.chmod(0o755)
-            target = root / 'installed'
-
-            def fake_fetch(url, path, expected):
-                path.write_bytes((release / Path(url).name).read_bytes())
-
-            with patch.object(setup, 'libc_version', return_value=(2, 39)), \
-                    patch.object(setup, 'fetch', side_effect=fake_fetch):
-                self.assertEqual(setup.download_binary('obabel-vinardock', target),
-                                 'obabel-vinardock-linux-amd64-ubuntu22.04')
-            self.assertEqual(target.read_text(), working.read_text())
-            working.write_text(broken.read_text())
-            working.chmod(0o755)
-            with patch.object(setup, 'libc_version', return_value=(2, 39)), \
-                    patch.object(setup, 'fetch', side_effect=fake_fetch):
-                with self.assertRaisesRegex(RuntimeError, 'no released'):
-                    setup.download_binary('obabel-vinardock', root / 'fresh')
-
-
 class IntegrationTests(unittest.TestCase):
     """Run the real binaries end-to-end; skipped when the tools dir is absent.
 

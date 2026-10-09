@@ -2,8 +2,8 @@
 
 Vinardock docking pipeline (prepare → dock → analyse) packaged as an
 agent skill. No build step; scripts are plain Python 3 stdlib. Requires
-Python ≥ 3.9 (`Path.is_relative_to`) and Linux x86_64 — the release
-assets in `setup.py` are linux-amd64 only.
+Python ≥ 3.9 (`Path.is_relative_to`) and Linux x86_64 — `bin/` ships
+linux-amd64 static binaries.
 
 ## Verify
 
@@ -29,11 +29,10 @@ assets in `setup.py` are linux-amd64 only.
   ubuntu 22.04 but runs anywhere x86_64 Linux. `setup.py install`
   defaults to them and `pipeline.py` prefers them over
   `<tools_dir>/bin/`.
-- `scripts/setup.py` pins every release asset by sha256 in `CHECKSUMS`;
-  `ASSETS` maps each tool to (modern asset, glibc fallback asset, minimum
-  glibc). Downloads try the modern asset first on new glibc and the
-  `-ubuntu22.04` fallback on old glibc, but always keep the first asset
-  that passes the launch smoke test.
+- `scripts/setup.py install` copies binaries from `bin/` (or an explicit
+  path) — there is no binary download path. The only download is the
+  `param/` files, fetched from `arloa/Vinardock-exec` pinned commit
+  `11caaa8` and sha256-verified via `PARAM_HASHES`.
 - **No hashing for verification.** status.json lists artifact *paths*
   only; resume checks are status + existence + timestamp staleness
   (a stage is stale when its predecessor finished after it started).

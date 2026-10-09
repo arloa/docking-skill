@@ -3,7 +3,6 @@ import argparse
 import hashlib
 import json
 import os
-import platform
 import re
 import shutil
 import subprocess
@@ -14,20 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = Path.home() / '.local/share/docking-tools'
-RELEASE = 'https://github.com/arloa/Vinardock-exec/releases/download/v1.0.0/'
 SOURCE = 'https://raw.githubusercontent.com/arloa/Vinardock-exec/11caaa8/'
-CHECKSUMS = {
-    'vinardock-linux-amd64': '9ce6b1f9878b4e19b7861e14b664bdf328019a591c7931d027343e100460c61f',
-    'vinardock-linux-amd64-ubuntu22.04': '15ae31b5a21ba848fcf9b560d2a6af50429c876e655050a12dda5db175c8da18',
-    'obabel-vinardock-linux-amd64': '6e935b3e3ae569f2e5844e06d82777b1c356e89cfc67dacd030f784b64445523',
-    'obabel-vinardock-linux-amd64-ubuntu22.04': '68a97cd71881a37d6deeabec042318a342a89c1bc5d3aeacbaa1aff8193423b1',
-}
-# (modern asset, glibc<min fallback asset, minimum glibc). The ubuntu22.04
-# builds exist because the modern binaries link against newer glibc symbols.
-ASSETS = {
-    'vinardock': ('vinardock-linux-amd64', 'vinardock-linux-amd64-ubuntu22.04', (2, 39)),
-    'obabel-vinardock': ('obabel-vinardock-linux-amd64', 'obabel-vinardock-linux-amd64-ubuntu22.04', (2, 38)),
-}
 PARAM_HASHES = {
     'param.dat': 'd6ae4eb72dd94d228eaaebe14a50762d54ae8a0e19303e20d1d0195bfcd13ae7',
     'param.TxT.dat': 'bba8ee8a0ccd702cf46d37a6d2680da3dfaec4d445b8d2b7e65d162d9cb8704c',
@@ -41,19 +27,6 @@ def digest(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b''):
             h.update(chunk)
     return h.hexdigest()
-
-
-def libc_version():
-    version = platform.libc_ver()[1]
-    parts = version.split('.')[:2]
-    if len(parts) == 2 and all(part.isdigit() for part in parts):
-        return tuple(int(part) for part in parts)
-    return ()
-
-
-def release_assets(name):
-    modern, legacy, minimum = ASSETS[name]
-    return [legacy, modern] if libc_version() and libc_version() < minimum else [modern, legacy]
 
 
 def candidate(path, name):
@@ -168,49 +141,24 @@ def install_copy(source, target, replace=False):
     os.replace(temp_path, target)
 
 
-def download_binary(name, target, replace=False):
-    last_error = None
-    with tempfile.TemporaryDirectory() as temp:
-        for asset in release_assets(name):
-            source = Path(temp) / asset
-            fetch(RELEASE + asset, source, CHECKSUMS[asset])
-            source.chmod(0o755)
-            try:
-                candidate(source, name)
-            except (RuntimeError, subprocess.TimeoutExpired) as error:
-                last_error = error
-                continue
-            install_copy(source, target, replace=replace)
-            return asset
-        raise RuntimeError(f'no released {name} asset runs on this host: {last_error}')
-
-
 def install(args):
     (TOOLS / 'bin').mkdir(parents=True, exist_ok=True)
     (TOOLS / 'param').mkdir(parents=True, exist_ok=True)
     summary = {}
     receipt = TOOLS / 'install.json'
     previous = json.loads(receipt.read_text()) if receipt.is_file() else {}
-    local_installs = []
     for name, selected in [('vinardock', args.vinardock),
                            ('obabel-vinardock', args.obabel_vinardock)]:
         target = TOOLS / 'bin' / name
-        if selected == 'download':
-            asset = download_binary(name, target, replace=args.replace)
-            origin = 'release v1.0.0/' + asset
-        else:
-            source = Path(selected).expanduser().resolve()
-            if not candidate(source, name):
-                raise ValueError('not an executable: ' + str(source))
-            same = source == target.resolve()
-            install_copy(source, target, replace=args.replace)
-            origin = (previous.get(name, {}).get('source') or 'local ' + str(target)) if same \
-                else 'local ' + str(source)
-            local_installs.append(name)
+        source = Path(selected).expanduser().resolve()
+        if not candidate(source, name):
+            raise ValueError('not an executable: ' + str(source))
+        same = source == target.resolve()
+        install_copy(source, target, replace=args.replace)
+        origin = (previous.get(name, {}).get('source') or 'local ' + str(target)) if same \
+            else 'local ' + str(source)
         summary[name] = candidate(target, name)
         summary[name]['source'] = origin
-        if origin.startswith('release ') and origin.rsplit('/', 1)[1] != ASSETS[name][0]:
-            summary[name]['note'] = origin.rsplit('/', 1)[1] + ' selected for glibc < ' + '.'.join(map(str, ASSETS[name][2]))
     for name, expected in PARAM_HASHES.items():
         target = TOOLS / 'param' / name
         if args.param == 'download':
@@ -240,14 +188,11 @@ def install(args):
             "import importlib.metadata as m; print(m.version('plip'), m.version('openbabel'))"], text=True).strip().split()
         summary['plip'] = {'path': str(plip),
                            'version': info[0], 'openbabel_bindings': info[1]}
-    # regenerate help references only for tools installed from a local path —
-    # the checked-in files already document the pinned release builds
+    # regenerate the checked-in help references so they always document the
+    # binaries actually installed
     refs = ROOT / 'references'
     for name, command in [('vinardock-help.txt', [str(TOOLS / 'bin/vinardock'), '--help']),
                           ('obabel-vinardock-help.txt', [str(TOOLS / 'bin/obabel-vinardock'), '-H'])]:
-        tool = 'vinardock' if name.startswith('vinardock') else 'obabel-vinardock'
-        if tool not in local_installs:
-            continue
         output = subprocess.run(command, capture_output=True, text=True)
         text = output.stdout + output.stderr
         if name == 'vinardock-help.txt':
@@ -268,11 +213,10 @@ def main():
     sub = parser.add_subparsers(dest='action', required=True)
     sub.add_parser('probe')
     install_parser = sub.add_parser('install')
-    # the repo ships fully static builds — no downloads or host libs needed
+    # the repo ships fully static builds in bin/ — no downloads or host libs
     for name in ('vinardock', 'obabel-vinardock'):
-        bundled = ROOT / 'bin' / name
-        install_parser.add_argument(
-            '--' + name, default=str(bundled) if bundled.is_file() else 'download')
+        install_parser.add_argument('--' + name, default=str(ROOT / 'bin' / name),
+                                    help='path to a ' + name + ' binary (default: bundled)')
     install_parser.add_argument('--param', default='download')
     install_parser.add_argument('--skip-plip', action='store_true')
     install_parser.add_argument('--launcher', action='store_true',

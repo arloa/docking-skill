@@ -43,8 +43,8 @@ to reuse.
 
 ```bash
 python3 "<skill_dir>/scripts/setup.py" install \
-    [--vinardock <abs-path|download>] \
-    [--obabel-vinardock <abs-path|download>] \
+    [--vinardock <abs-path>] \
+    [--obabel-vinardock <abs-path>] \
     [--param <abs-dir|download>] [--skip-plip] [--launcher]
 ```
 
@@ -52,16 +52,13 @@ python3 "<skill_dir>/scripts/setup.py" install \
 static builds (`bin/`, built for ubuntu 22.04 — static, so they run
 anywhere regardless of host glibc) — pass either only to override.
 
-- `local` (a path) → copied into `~/.local/share/docking-tools/bin/`
-  (copied, not symlinked — freezes the artifact).
-- `download` → release `v1.0.0` assets from
-  `github.com/arloa/Vinardock-exec`, verified against the sha256 pinned
-  in `CHECKSUMS`. Each tool has a modern build and an `-ubuntu22.04`
-  fallback; glibc picks the candidate order (`vinardock` needs ≥2.39,
-  `obabel-vinardock` ≥2.38), and the launch smoke test picks the winner
-  — if neither launches, install fails rather than leaving a broken
-  tool. `param/` is fetched from pinned commit `11caaa8`
-  with per-file sha256 (the `v1.0.0` tag predates the parameter files).
+- a path → copied into `~/.local/share/docking-tools/bin/`
+  (copied, not symlinked — freezes the artifact). The bundled builds
+  are the default; there is no binary download path.
+- `param/ download` (the default) fetches the three parameter files
+  from pinned commit `11caaa8` of `github.com/arloa/Vinardock-exec`,
+  each verified against its sha256 in `PARAM_HASHES`; a path installs
+  a local `param/` dir instead.
 - PLIP → `uv venv --python <invoking Python> <tools_dir>/plip-venv` +
   pinned deps including the self-contained `openbabel` 3.2.1 wheel —
   a different Open Babel than the obabel-vinardock CLI uses; noted in
@@ -81,10 +78,10 @@ anywhere regardless of host glibc) — pass either only to override.
   Non-interactive runs never prompt — pass `--launcher` to create it
   (after the user approves). An existing link to the same script is a
   no-op; a different file needs `--replace`.
-- `references/*-help.txt` regenerate only for **local** installs —
-  the checked-in files already document the pinned release builds.
-  `vinardock-help.txt` masks the timestamp seed default as `<timestamp>`
-  so help diffs compare across runs.
+- `references/*-help.txt` regenerate on every install so they document
+  the binaries actually in use. `vinardock-help.txt` masks the
+  timestamp seed default as `<timestamp>` so help diffs compare
+  across runs.
 
 Prints a JSON summary of what was installed (`{path, version_line,
 source}` per tool, plus param files and PLIP versions) and writes the
