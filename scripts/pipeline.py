@@ -22,6 +22,8 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 TOOLS = Path.home() / '.local/share/docking-tools'
+# the repo ships a fully static obabel — no install or host Open Babel needed
+BUNDLED_OBABEL = ROOT / 'bin/obabel-vinardock'
 STAGES = ('prepare', 'dock', 'analyse')
 FOLDERS = {'prepare': 'prep', 'dock': 'dock', 'analyse': 'analysis'}
 PARAM_FILES = ('param.dat', 'param.TxT.dat', 'dun2010bbdep.bin')
@@ -1046,7 +1048,8 @@ def cmd_workflow(args, cli_flags):
         raise ValueError('threads must be positive')
     root = args.run_dir.expanduser().resolve()
     tools = args.tools_dir.expanduser().resolve()
-    missing = [str(p) for p in [tools / 'bin/vinardock', tools / 'bin/obabel-vinardock',
+    obabel = BUNDLED_OBABEL if BUNDLED_OBABEL.is_file() else tools / 'bin/obabel-vinardock'
+    missing = [str(p) for p in [tools / 'bin/vinardock', obabel,
                                 tools / 'plip-venv/bin/plip',
                                 *[tools / 'param' / f for f in PARAM_FILES]]
                if not p.is_file()]
@@ -1058,7 +1061,7 @@ def cmd_workflow(args, cli_flags):
     # Explicit kwargs make the per-stage contract visible in the signatures.
     stages = {'prepare': lambda: stage_prepare(
                   run_dir=root, receptor=args.receptor, ligand=list(args.ligand),
-                  obabel_vinardock=tools / 'bin/obabel-vinardock',
+                  obabel_vinardock=obabel,
                   drop_hetatm=args.drop_hetatm, autobox_ligand=args.autobox_ligand),
               'dock': lambda: stage_dock(
                   run_dir=root, recipe=str(recipe) if recipe else None,
@@ -1116,7 +1119,9 @@ def main():
 
     p = sub.add_parser('prepare', parents=[run, inputs], allow_abbrev=False,
                        help='convert receptor/ligand inputs to pdbt')
-    p.add_argument('--obabel_vinardock', type=Path, default=TOOLS / 'bin/obabel-vinardock')
+    p.add_argument('--obabel_vinardock', type=Path,
+                   default=BUNDLED_OBABEL if BUNDLED_OBABEL.is_file()
+                           else TOOLS / 'bin/obabel-vinardock')
     p.add_argument('--drop_hetatm', action='store_true')
     p.add_argument('--timeout', type=int, default=300, help='per-conversion timeout (s)')
 

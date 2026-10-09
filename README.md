@@ -11,8 +11,9 @@ the agent needs to coordinate the run.
   linux-amd64 only
 - Python ≥ 3.9 (stdlib only; no pip dependencies)
 - Network access on first run to download the pinned tool binaries
-  (vinardock, obabel-vinardock, PLIP) into
-  `~/.local/share/docking-tools` — override per run with `--tools_dir`
+  (vinardock, PLIP) into `~/.local/share/docking-tools` — override per
+  run with `--tools_dir`. A fully static `obabel-vinardock` ships in
+  `bin/` — no download or host Open Babel needed.
 
 ## Install
 

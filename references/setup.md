@@ -16,8 +16,10 @@ the error — "not found" for a present tool usually means an unusable
 build. Search scope is deliberately narrow — **PATH, the literal pwd,
 and the existing tools dir only**:
 
-- `vinardock`, `obabel-vinardock` — PATH, `<pwd>/<name>`,
-  `tools/bin/<name>` (bare `obabel` is NEVER probed or used)
+- `vinardock`, `obabel-vinardock` — the repo's own `bin/<name>` first
+  (it ships a fully static obabel-vinardock), then PATH,
+  `<pwd>/<name>`, `tools/bin/<name>` (bare `obabel` is NEVER probed
+  or used)
 - `param` — `<pwd>/param/` and `tools/param/` (needs `param.dat` +
   `param.TxT.dat` minimum)
 - `plip` — `tools/plip-venv/bin/plip`
@@ -29,10 +31,11 @@ No filesystem scanning, no guessed directories — a binary elsewhere is
 ## 2. Ask (coordinator)
 
 Show the probe result and ask the user **one question**: use the local
-tools found, or download the pinned release? Defaults: local when all
-three (vinardock, obabel-vinardock, param) were found; download
-otherwise. Also offer per-tool mixing (e.g. local vinardock + downloaded
-obabel-vinardock) via explicit paths.
+tools found, or download the pinned release? `obabel-vinardock` needs no
+asking — the repo ships a fully static build (`bin/obabel-vinardock`,
+needs no Open Babel libraries on the host at all) and install defaults
+to it. For vinardock + param: local when found, download otherwise.
+Per-tool mixing via explicit paths is also fine.
 
 If `plip-venv` is missing it is always created — there is no system PLIP
 to reuse.
@@ -42,9 +45,12 @@ to reuse.
 ```bash
 python3 "<skill_dir>/scripts/setup.py" install \
     --vinardock <abs-path|download> \
-    --obabel-vinardock <abs-path|download> \
+    [--obabel-vinardock <abs-path|download>] \
     [--param <abs-dir|download>] [--skip-plip] [--launcher]
 ```
+
+`--obabel-vinardock` defaults to the repo's bundled static build
+(`bin/obabel-vinardock`) — pass it only to override.
 
 - `local` (a path) → copied into `~/.local/share/docking-tools/bin/`
   (copied, not symlinked — freezes the artifact).
@@ -54,13 +60,7 @@ python3 "<skill_dir>/scripts/setup.py" install \
   fallback; glibc picks the candidate order (`vinardock` needs ≥2.39,
   `obabel-vinardock` ≥2.38), and the launch smoke test picks the winner
   — if neither launches, install fails rather than leaving a broken
-  tool. Caveat: the ubuntu22.04 obabel-vinardock needs
-  `libopenbabel.so.7` (Open Babel 3.1.1 installed). The cleanest fix is
-  a **fully static local build** — verify with `ldd` (should print
-  `not a dynamic executable`) and install it via
-  `--obabel-vinardock <path>`; the reference install uses
-  `/usr/local/openbabel-master/build-static/bin/obabel` (Open Babel
-  3.1.1 static). `param/` is fetched from pinned commit `11caaa8`
+  tool. `param/` is fetched from pinned commit `11caaa8`
   with per-file sha256 (the `v1.0.0` tag predates the parameter files).
 - PLIP → `uv venv --python <invoking Python> <tools_dir>/plip-venv` +
   pinned deps including the self-contained `openbabel` 3.2.1 wheel —

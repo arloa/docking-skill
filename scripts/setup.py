@@ -75,7 +75,8 @@ def probe():
     result = {}
     unusable = {}
     for name in ('vinardock', 'obabel-vinardock'):
-        paths = [Path.cwd() / name, Path(shutil.which(name)) if shutil.which(name) else None,
+        paths = [ROOT / 'bin' / name, Path.cwd() / name,
+                 Path(shutil.which(name)) if shutil.which(name) else None,
                  TOOLS / 'bin' / name]
         seen = set()
         found = []
@@ -268,7 +269,11 @@ def main():
     sub.add_parser('probe')
     install_parser = sub.add_parser('install')
     install_parser.add_argument('--vinardock', required=True)
-    install_parser.add_argument('--obabel-vinardock', required=True)
+    # the repo ships a fully static build — zero host Open Babel needed
+    bundled_obabel = ROOT / 'bin/obabel-vinardock'
+    install_parser.add_argument('--obabel-vinardock',
+                                default=str(bundled_obabel) if bundled_obabel.is_file()
+                                else 'download')
     install_parser.add_argument('--param', default='download')
     install_parser.add_argument('--skip-plip', action='store_true')
     install_parser.add_argument('--launcher', action='store_true',

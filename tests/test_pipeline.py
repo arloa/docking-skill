@@ -574,9 +574,12 @@ class SetupTests(unittest.TestCase):
                 os.chdir(root)
                 with patch.object(setup, 'TOOLS', root / 'tools'), patch.dict(os.environ, {'PATH': ''}):
                     result = setup.probe()
-                    self.assertEqual(result['obabel-vinardock'], [])
+                    # broken binary lands in unusable, never in the good list
+                    # (the bundled bin/obabel-vinardock is legitimately found)
                     self.assertEqual(result['unusable']['obabel-vinardock'][0]['path'], str(binary))
                     self.assertIn('cannot run', result['unusable']['obabel-vinardock'][0]['error'])
+                    self.assertNotIn(str(binary),
+                                     [c['path'] for c in result['obabel-vinardock']])
             finally:
                 os.chdir(old)
 
