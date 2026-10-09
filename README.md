@@ -48,7 +48,7 @@ suspect results rather than stopping the run.
 Non-interactive agents: every interview answer maps to a `pipeline.py
 workflow` flag (`--prepare_receptor --prepare_ligand --recipe
 --run_dir`, plus `--prepare_autobox_ligand`, `--drop_hetatm`,
-`--pose`, `--timeout`); supply them all and no questions are asked.
+`--keep_metals`, `--pose`, `--timeout`); supply them all and no questions are asked.
 Vinardock's own flags (`--seed`, box coordinates, `autobox`,
 `flexres.*`, swarm/scoring options) are passed through verbatim on the
 same command line — precedence is CLI > `--config` > recipe > script

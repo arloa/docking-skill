@@ -27,7 +27,7 @@
 - Do not interpret a PLIP zero exit code as a successful ligand analysis: validate an expected ligand binding site in XML.
 - On flex runs, use the modified receptor output for the complex instead of the unmodified prep receptor when available.
 - Probe searches only PATH and the invocation's working directory (plus the existing tools install target), never guessed source directories. Binaries that exist but cannot launch are listed under `unusable` with the error — check it before concluding a tool is absent.
-- Receptor HETATM records may represent essential cofactors/metal ions or irrelevant waters/co-crystal ligands; ask before stripping, never silently discard them. Do not pre-read the receptor to list them — ask directly; prepare reports the residue names it found.
+- Receptor HETATM records may represent essential cofactors/metal ions or irrelevant waters/co-crystal ligands; ask before stripping, never silently discard them. Do not pre-read the receptor to list them — ask directly; prepare reports the residue names kept or dropped. `--drop_hetatm --keep_metals` is the standard prep (drops waters/cofactors/co-solutes, keeps metal ions by element column); `--drop_hetatm` alone strips everything.
 - Blank-chain receptor records are reported as chain `(blank)` in `receptor_chains` — a reporting placeholder, not a real chain ID; do not use it in flexres/mutation specs.
 
 

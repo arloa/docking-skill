@@ -325,8 +325,25 @@ def to_pdbt(source, dest, obabel, log, timeout, warnings, label, smiles=None):
     run_logged([obabel, source, *extra, '-O', dest, '-p7.4'], log, timeout)
 
 
+# element-symbol detection (col 77-78) with residue-name fallback —
+# "standard" receptor prep drops waters/cofactors/co-solutes but keeps
+# metal ions, which are often part of the binding site
+METALS = frozenset(
+    'LI BE NA MG K CA SC TI V CR MN FE CO NI CU ZN GA GE RB SR Y ZR NB MO '
+    'RU RH PD AG CD IN SN SB CS BA HF TA W RE OS IR PT AU HG TL PB BI '
+    'LA CE PR ND SM EU GD TB DY HO ER TM YB LU'.split())
+
+
+def is_metal_hetatm(line):
+    element = line[76:78].strip().upper()
+    if element:
+        return element in METALS
+    return line[17:20].strip().upper() in METALS
+
+
 def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
-                  drop_hetatm=False, autobox_ligand=None, timeout=300):
+                  drop_hetatm=False, keep_metals=False, autobox_ligand=None,
+                  timeout=300):
     root = run_dir.resolve()
     stage = root / 'prep'
     stage.mkdir(parents=True, exist_ok=True)
@@ -342,11 +359,22 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
         lines = receptor.read_text(errors='replace').splitlines(keepends=True)
         chains = sorted({line[21:22].strip() or '(blank)' for line in lines
                          if line.startswith(('ATOM  ', 'HETATM'))})
+        if keep_metals and not drop_hetatm:
+            raise ValueError('--keep_metals only makes sense with --drop_hetatm')
         hetatms = sorted({line[17:20].strip() for line in lines if line.startswith('HETATM')})
-        if hetatms and not drop_hetatm:
-            state['warnings'].append('Receptor HETATM residues kept: ' + ', '.join(hetatms))
         if drop_hetatm:
-            lines = [line for line in lines if not line.startswith('HETATM')]
+            kept = sorted({line[17:20].strip() for line in lines
+                           if line.startswith('HETATM') and keep_metals
+                           and is_metal_hetatm(line)})
+            lines = [line for line in lines if not line.startswith('HETATM')
+                     or (keep_metals and is_metal_hetatm(line))]
+            dropped = sorted(set(hetatms) - set(kept))
+            if dropped:
+                state['warnings'].append('Receptor HETATM dropped: ' + ', '.join(dropped))
+            if kept:
+                state['warnings'].append('metal ions kept under --drop_hetatm: ' + ', '.join(kept))
+        elif hetatms:
+            state['warnings'].append('Receptor HETATM residues kept: ' + ', '.join(hetatms))
         if not any(line.startswith('ATOM  ') for line in lines):
             raise ValueError('receptor has no ATOM records')
         prepared_rec = stage / (receptor.stem + '.pdbt')
@@ -1065,7 +1093,8 @@ def cmd_workflow(args, cli_flags):
     stages = {'prepare': lambda: stage_prepare(
                   run_dir=root, receptor=args.receptor, ligand=list(args.ligand),
                   obabel_vinardock=obabel,
-                  drop_hetatm=args.drop_hetatm, autobox_ligand=args.autobox_ligand),
+                  drop_hetatm=args.drop_hetatm, keep_metals=args.keep_metals,
+                  autobox_ligand=args.autobox_ligand),
               'dock': lambda: stage_dock(
                   run_dir=root, recipe=str(recipe) if recipe else None,
                   config=args.config,
@@ -1126,6 +1155,8 @@ def main():
                    default=BUNDLED_OBABEL if BUNDLED_OBABEL.is_file()
                            else TOOLS / 'bin/obabel-vinardock')
     p.add_argument('--drop_hetatm', action='store_true')
+    p.add_argument('--keep_metals', action='store_true',
+                   help='with --drop_hetatm: keep metal ions (standard receptor prep)')
     p.add_argument('--timeout', type=int, default=300, help='per-conversion timeout (s)')
 
     p = sub.add_parser('dock', parents=[run, docking, tools], allow_abbrev=False,
@@ -1142,6 +1173,8 @@ def main():
     p = sub.add_parser('workflow', parents=[run, inputs, docking, tools],
                        allow_abbrev=False, help='run the gated pipeline end to end')
     p.add_argument('--drop_hetatm', action='store_true')
+    p.add_argument('--keep_metals', action='store_true',
+                   help='with --drop_hetatm: keep metal ions (standard receptor prep)')
     p.add_argument('--pose', type=int, default=1)
     # --threads doubles as vinardock's --threads (injected as a script
     # default) and the PLIP pool size — the only flag both worlds share

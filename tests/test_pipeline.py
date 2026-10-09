@@ -19,11 +19,12 @@ def module(name):
     return result
 
 
-def atom(x, y, z, chain='A', kind='ATOM  ', name='CA', resname='ALA', resseq=1):
+def atom(x, y, z, chain='A', kind='ATOM  ', name='CA', resname='ALA', resseq=1,
+         element='C'):
     # PDB fixed columns: resname at 17:20, chain at 21, resseq at 22:26,
-    # x/y/z at 30:38 / 38:46 / 46:54
+    # x/y/z at 30:38 / 38:46 / 46:54, element at 76:78
     return (f'{kind}{1:5d}  {name:<4s}{resname:>3s} {chain}{resseq:4d}    '
-            f'{x:8.3f}{y:8.3f}{z:8.3f}')
+            f'{x:8.3f}{y:8.3f}{z:8.3f}' + ' ' * 22 + f'{element:>2s}')
 
 
 def write_status(root, folder, stage, ok=True, artifacts=(), **extra):
@@ -306,6 +307,22 @@ class AnalyseHelperTests(unittest.TestCase):
             self.assertEqual(counts['hydrogen_bonds'], 1)
             self.assertEqual(counts['salt_bridges'], 0)
             self.assertEqual(residues, [('H-bonds', 'A:SER:63')])
+
+    def test_is_metal_hetatm(self):
+        pipe = module('pipeline')
+        # element column wins: a carbon-named ligand stays non-metal even
+        # when its resname happens to look metallic, and vice versa
+        self.assertTrue(pipe.is_metal_hetatm(
+            atom(0, 0, 0, kind='HETATM', name='ZN', resname='ZN', element='ZN')))
+        self.assertFalse(pipe.is_metal_hetatm(
+            atom(0, 0, 0, kind='HETATM', name='C1', resname='LIG', element='C')))
+        self.assertFalse(pipe.is_metal_hetatm(
+            atom(0, 0, 0, kind='HETATM', name='CA', resname='LIG', element='C')))
+        # missing element column → residue-name fallback
+        self.assertTrue(pipe.is_metal_hetatm(
+            atom(0, 0, 0, kind='HETATM', name='MN', resname='MN', element='')))
+        self.assertFalse(pipe.is_metal_hetatm(
+            atom(0, 0, 0, kind='HETATM', name='O', resname='HOH', element='')))
 
     def test_parse_xml_rejects_ambiguous_site(self):
         pipe = module('pipeline')

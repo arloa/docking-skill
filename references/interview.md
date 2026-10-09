@@ -7,11 +7,13 @@ question pass — scripts never ask questions.
 
 1. **Receptor** — path to a `.pdb` (or `.pdbt`) file. Trust the extension;
    do not open the file to inspect it.
-   - **ASK**: strip receptor HETATM records (waters, ions, co-crystal
-     ligands)? (`--drop_hetatm` strips all HETATM.) Ask the question
-     directly — do not read the receptor to enumerate the residues. If
-     HETATM are kept, prepare reports the residue names it found in its
-     warnings/metrics.
+   - **ASK**: how to handle receptor HETATM records — three choices:
+     keep all (default), standard prep (`--drop_hetatm --keep_metals`:
+     strips waters/ions/cofactors/co-crystal ligands but keeps metal
+     ions, detected by element column), or strip everything including
+     metals (`--drop_hetatm` alone). Ask directly — do not read the
+     receptor to enumerate the residues. Prepare reports the residue
+     names kept or dropped in its warnings/metrics.
 2. **Ligands** — either:
    - structure files (`.pdbt`, `.sdf`, `.mol2`, `.pdb`), or
    - SMILES — create a `.smi` input file outside the run directory,
