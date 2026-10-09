@@ -21,7 +21,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOLS = Path.home() / '.local/share/docking-tools'
+TOOLS = Path.home() / '.local/share/vinardock-tools'
 # the repo ships fully static binaries — no install or host libs needed
 BUNDLED_OBABEL = ROOT / 'bin/obabel-vinardock'
 BUNDLED_VINARDOCK = ROOT / 'bin/vinardock'
@@ -341,15 +341,33 @@ def is_metal_hetatm(line):
     return line[17:20].strip().upper() in METALS
 
 
-# modified amino acids (MSE, SEP, TPO, ...) are the polypeptide chain even
-# when a .pdb marks them HETATM — they are never stripped or docked as ligands
-MODIFIED_AA = frozenset(
-    line.strip() for line in (ROOT / 'references/modified_aa.txt').read_text().splitlines()
-    if line.strip() and not line.startswith('#'))
+def residue_key(line):
+    return (line[17:20].strip(), line[21:22].strip(), line[22:27].strip())
 
 
-def is_modified_residue(line):
-    return line[17:20].strip().upper() in MODIFIED_AA
+def hetatm_residues(lines):
+    """{(resname, chain, resseq): [lines]} for a receptor's HETATM groups."""
+    groups = OrderedDict()
+    for line in lines:
+        if line.startswith('HETATM'):
+            groups.setdefault(residue_key(line), []).append(line)
+    return groups
+
+
+def modified_residues(lines):
+    """Keys of HETATM groups that are really polymer residues: a modified
+    amino acid (MSE, SEP, TPO, ...) keeps the N/CA/C + O backbone even when
+    the file marks it HETATM, so it is never stripped or docked as a ligand.
+    The CA element must be carbon so a calcium ion can't fake the backbone.
+    ponytail: backbone signature only — misses terminal caps (ACE/NME) and
+    non-backbone PTMs; add a residue-name set if those must be kept too."""
+    modified = set()
+    for key, group in hetatm_residues(lines).items():
+        atoms = {line[12:16].strip(): line for line in group}
+        if {'N', 'CA', 'C'} <= set(atoms) and {'O', 'OXT'} & set(atoms) \
+                and atoms['CA'][76:78].strip().upper() in ('', 'C'):
+            modified.add(key)
+    return modified
 
 
 # prepare reports every residue it keeps or drops *other than* these, so a
@@ -360,23 +378,18 @@ STANDARD_AA = frozenset(
     'TRP TYR VAL HID HIE HIP'.split())
 
 
-def residue_counts(lines):
-    """{resname: n} — distinct residues (chain + resseq) per residue name,
-    counting ATOM and HETATM records alike."""
+def nonstandard_counts(lines):
+    """{resname: count} for every residue other than the standard amino
+    acids — distinct chain+resseq residues, ATOM and HETATM alike."""
     seen = set()
     counts = {}
     for line in lines:
         if line.startswith(('ATOM  ', 'HETATM')):
-            key = (line[17:20].strip(), line[21:22].strip(), line[22:27].strip())
+            key = residue_key(line)
             if key not in seen:
                 seen.add(key)
                 counts[key[0]] = counts.get(key[0], 0) + 1
-    return counts
-
-
-def nonstandard_counts(lines):
-    return {name: n for name, n in residue_counts(lines).items()
-            if name.upper() not in STANDARD_AA}
+    return {name: n for name, n in counts.items() if name.upper() not in STANDARD_AA}
 
 
 def format_counts(counts):
@@ -392,16 +405,12 @@ def hetatm_groups(lines):
     (resname, chain, resseq). Waters, metal-only groups, fragments
     under 3 atoms (ions) and modified amino acids (MSE, SEP, ...) are
     never dockable ligands — the last are the polymer itself."""
-    groups = OrderedDict()
-    for line in lines:
-        if line.startswith('HETATM'):
-            key = (line[17:20].strip(), line[21:22].strip(), line[22:27].strip())
-            groups.setdefault(key, []).append(line)
+    modified = modified_residues(lines)
     result = []
-    for (resname, chain, resseq), group in groups.items():
+    for (resname, chain, resseq), group in hetatm_residues(lines).items():
         if resname in WATER_RESNAMES or len(group) < 3 \
                 or all(is_metal_hetatm(line) for line in group) \
-                or resname.upper() in MODIFIED_AA:
+                or (resname, chain, resseq) in modified:
             continue
         result.append({'resname': resname, 'chain': chain, 'resseq': resseq,
                        'atoms': len(group), 'lines': group})
@@ -453,7 +462,6 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
                          if line.startswith(('ATOM  ', 'HETATM'))})
         if keep_metals and not drop_hetatm:
             raise ValueError('--keep_metals only makes sense with --drop_hetatm')
-        hetatms = sorted({line[17:20].strip() for line in lines if line.startswith('HETATM')})
         # redock mode: extract a co-crystal ligand from the receptor BEFORE
         # any HETATM stripping. The molecule always leaves the receptor —
         # docking into an occupied pocket is meaningless — regardless of
@@ -467,11 +475,8 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
                 else safe_name('{}_{}{}'.format(group['resname'], group['chain'], group['resseq']))
             drop_key = (group['resname'], group['chain'], group['resseq'])
             lines = [line for line in lines if not (
-                line.startswith('HETATM') and (line[17:20].strip(),
-                line[21:22].strip(), line[22:27].strip()) == drop_key)]
+                line.startswith('HETATM') and residue_key(line) == drop_key)]
             extracted = (stem, group)
-            hetatms = sorted({line[17:20].strip() for line in lines
-                              if line.startswith('HETATM')})
         # everything the user must be told about: which non-standard residues
         # (waters, ions, cofactors, modified amino acids, ligands) were kept
         # and which were dropped — standard amino acids are never listed
@@ -479,8 +484,9 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
         if drop_hetatm:
             # modified amino acids are the polymer, not a heterogen — they
             # survive every stripping mode
+            modified = modified_residues(lines)
             lines = [line for line in lines if not line.startswith('HETATM')
-                     or is_modified_residue(line)
+                     or residue_key(line) in modified
                      or (keep_metals and is_metal_hetatm(line))]
         kept_residues = nonstandard_counts(lines)
         dropped_residues = {name: n for name, n in before.items()
@@ -567,7 +573,7 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
         if not names:
             raise ValueError('no ligands prepared')
         state['metrics'] = {'n_ligands': len(names), 'ligands': sorted(names),
-                            'receptor_chains': chains, 'hetatm_resnames': hetatms,
+                            'receptor_chains': chains,
                             'residues_kept': kept_residues,
                             'residues_dropped': dropped_residues,
                             'ligand_from_receptor': extracted[0] if extracted else None,
@@ -1127,14 +1133,6 @@ def stage_analyse(run_dir, pose=1, threads=1, tools_dir=TOOLS, timeout=600):
         rec_fallback = Path(run.get('receptor_path',
                                     root / 'prep' / run.get('receptor_file', 'receptor.pdbt')))
         lines = ['# Docking report', ''] + provenance(install, run, root)
-        prep_metrics = (read_status(root, 'prepare') or {}).get('metrics') or {}
-        if 'residues_kept' in prep_metrics or 'residues_dropped' in prep_metrics:
-            lines += ['## Receptor residues', '',
-                      'Non-standard residues in the prepared receptor (standard amino acids omitted):',
-                      '',
-                      '- kept: ' + (format_counts(prep_metrics.get('residues_kept') or {}) or 'none'),
-                      '- dropped: ' + (format_counts(prep_metrics.get('residues_dropped') or {}) or 'none'),
-                      '']
         lines += ['## Ligands', '', '| Ligand | Best score (kcal/mol) | Conformers | Analysed pose |',
                   '|---|---:|---:|---:|']
         ok = {n: i for n, i in run['per_ligand'].items() if i.get('status') != 'failed'}

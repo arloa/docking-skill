@@ -13,7 +13,7 @@ the agent needs to coordinate the run.
   downloads
 - Python ≥ 3.9 (stdlib only; no pip dependencies)
 - Network access is needed only to build the PLIP venv into
-  `~/.local/share/docking-tools` (or pass `--skip-plip` / a local
+  `~/.local/share/vinardock-tools` (or pass `--skip-plip` / a local
   `--param` dir) — override per run with `--tools_dir`.
 
 ## Install
@@ -61,7 +61,7 @@ everything.
 ## Development
 
 - Tests: `python3 -m unittest discover -s tests` — the `IntegrationTests`
-  class runs the real binaries (when `~/.local/share/docking-tools` is
+  class runs the real binaries (when `~/.local/share/vinardock-tools` is
   populated) and asserts their actual output formats.
 - `AGENTS.md` documents repo conventions; `references/contract.md` is
   the stage interface.

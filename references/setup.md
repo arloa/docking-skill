@@ -53,7 +53,7 @@ python3 "<skill_dir>/scripts/setup.py" install \
 static builds (`bin/`, built for ubuntu 22.04 — static, so they run
 anywhere regardless of host glibc) — pass either only to override.
 
-- a path → copied into `~/.local/share/docking-tools/bin/` (or
+- a path → copied into `~/.local/share/vinardock-tools/bin/` (or
   `param/`); copied, not symlinked — freezes the artifact. The
   bundled builds/files are the default; there is no download path —
   the repo is self-contained except for the PLIP venv.

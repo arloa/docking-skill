@@ -10,7 +10,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOLS = Path.home() / '.local/share/docking-tools'
+TOOLS = Path.home() / '.local/share/vinardock-tools'
 PARAM_FILES = ('param.dat', 'param.TxT.dat', 'dun2010bbdep.bin')
 
 

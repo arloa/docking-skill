@@ -172,7 +172,6 @@ class PrepareHelperTests(unittest.TestCase):
         # ATOM (not HETATM) still counts as non-standard and is reported
         self.assertEqual(pipe.nonstandard_counts(lines),
                          {'MSE': 2, 'HOH': 1, 'ZN': 1})
-        self.assertEqual(pipe.residue_counts(lines)['ALA'], 1)
         self.assertEqual(pipe.format_counts({'MSE': 2, 'ZN': 1}), 'MSE x2, ZN x1')
         self.assertEqual(pipe.format_counts({}), '')
 
@@ -380,18 +379,27 @@ class AnalyseHelperTests(unittest.TestCase):
         self.assertFalse(pipe.is_metal_hetatm(
             atom(0, 0, 0, kind='HETATM', name='O', resname='HOH', element='')))
 
-    def test_is_modified_residue(self):
+    def test_modified_residues(self):
         pipe = module('pipeline')
-        self.assertTrue(pipe.is_modified_residue(
-            atom(0, 0, 0, kind='HETATM', name='CA', resname='MSE', element='C')))
-        self.assertTrue(pipe.is_modified_residue(
-            atom(0, 0, 0, kind='HETATM', name='CA', resname='SEP', element='C')))
-        self.assertTrue(pipe.is_modified_residue(
-            atom(0, 0, 0, kind='HETATM', name='CA', resname='SEC', element='C')))
-        self.assertFalse(pipe.is_modified_residue(
-            atom(0, 0, 0, kind='HETATM', name='C1', resname='LIG', element='C')))
-        self.assertFalse(pipe.is_modified_residue(
-            atom(0, 0, 0, kind='HETATM', name='O', resname='HOH', element='O')))
+
+        def het(chain, resseq, resname, name, element='C'):
+            return atom(0, 0, 0, chain=chain, kind='HETATM', name=name,
+                        resname=resname, resseq=resseq, element=element)
+
+        lines = [het('A', 2, 'MSE', 'N', 'N'), het('A', 2, 'MSE', 'CA'),
+                 het('A', 2, 'MSE', 'C'), het('A', 2, 'MSE', 'O', 'O'),
+                 het('A', 3, 'SEP', 'N', 'N'), het('A', 3, 'SEP', 'CA'),
+                 het('A', 3, 'SEP', 'C'), het('A', 3, 'SEP', 'OXT', 'O'),
+                 het('A', 100, 'HOH', 'O', 'O'),
+                 het('A', 200, 'LIG', 'C1'), het('A', 200, 'LIG', 'N1', 'N'),
+                 het('A', 200, 'LIG', 'O1', 'O'),
+                 # N/CA/C/O names but CA is a calcium element -> not backbone
+                 het('A', 300, 'CAX', 'N', 'N'), het('A', 300, 'CAX', 'CA', 'CA'),
+                 het('A', 300, 'CAX', 'C'), het('A', 300, 'CAX', 'O', 'O')]
+        # MSE/SEP carry the amino-acid backbone; water, the C1/N1/O1 ligand
+        # and the calcium-named group do not
+        self.assertEqual(pipe.modified_residues(lines),
+                         {('MSE', 'A', '2'), ('SEP', 'A', '3')})
 
     def test_hetatm_groups_and_pick(self):
         pipe = module('pipeline')
@@ -724,7 +732,7 @@ class IntegrationTests(unittest.TestCase):
     tree, and the vinardock log text — so a format drift in a real binary
     shows up here, not in production.
     """
-    TOOLS = Path.home() / '.local/share/docking-tools'
+    TOOLS = Path.home() / '.local/share/vinardock-tools'
     BIN = TOOLS / 'bin'
     VENV = TOOLS / 'plip-venv' / 'bin'
     PIPELINE = ROOT / 'scripts' / 'pipeline.py'
@@ -834,7 +842,6 @@ class IntegrationTests(unittest.TestCase):
                 self.run_cli('analyse', '--run_dir', str(root), '--tools_dir', str(self.TOOLS))
                 report = (root / 'report.md').read_text()
                 self.assertIn('Docking report', report)
-                self.assertIn('## Receptor residues', report)
                 self.assertTrue(list((root / 'analysis').glob('*_report.xml')))
 
 
