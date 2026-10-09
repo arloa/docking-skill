@@ -341,13 +341,57 @@ def is_metal_hetatm(line):
     return line[17:20].strip().upper() in METALS
 
 
+# modified amino acids (MSE, SEP, TPO, ...) are the polypeptide chain even
+# when a .pdb marks them HETATM — they are never stripped or docked as ligands
+MODIFIED_AA = frozenset(
+    line.strip() for line in (ROOT / 'references/modified_aa.txt').read_text().splitlines()
+    if line.strip() and not line.startswith('#'))
+
+
+def is_modified_residue(line):
+    return line[17:20].strip().upper() in MODIFIED_AA
+
+
+# prepare reports every residue it keeps or drops *other than* these, so a
+# non-standard residue is never silently discarded or silently retained.
+# Histidine tautomers count as standard (protonation variants, not PTMs).
+STANDARD_AA = frozenset(
+    'ALA ARG ASN ASP CYS GLN GLU GLY HIS ILE LEU LYS MET PHE PRO SER THR '
+    'TRP TYR VAL HID HIE HIP'.split())
+
+
+def residue_counts(lines):
+    """{resname: n} — distinct residues (chain + resseq) per residue name,
+    counting ATOM and HETATM records alike."""
+    seen = set()
+    counts = {}
+    for line in lines:
+        if line.startswith(('ATOM  ', 'HETATM')):
+            key = (line[17:20].strip(), line[21:22].strip(), line[22:27].strip())
+            if key not in seen:
+                seen.add(key)
+                counts[key[0]] = counts.get(key[0], 0) + 1
+    return counts
+
+
+def nonstandard_counts(lines):
+    return {name: n for name, n in residue_counts(lines).items()
+            if name.upper() not in STANDARD_AA}
+
+
+def format_counts(counts):
+    """`MSE x2, ZN x1` — residue names sorted, each with its instance count."""
+    return ', '.join(f'{name} x{counts[name]}' for name in sorted(counts))
+
+
 WATER_RESNAMES = frozenset({'HOH', 'WAT', 'H2O', 'DOD', 'SOL', 'TIP3'})
 
 
 def hetatm_groups(lines):
     """Dockable HETATM candidates in a receptor, keyed by
-    (resname, chain, resseq). Waters, metal-only groups and fragments
-    under 3 atoms (ions) are never dockable ligands."""
+    (resname, chain, resseq). Waters, metal-only groups, fragments
+    under 3 atoms (ions) and modified amino acids (MSE, SEP, ...) are
+    never dockable ligands — the last are the polymer itself."""
     groups = OrderedDict()
     for line in lines:
         if line.startswith('HETATM'):
@@ -356,7 +400,8 @@ def hetatm_groups(lines):
     result = []
     for (resname, chain, resseq), group in groups.items():
         if resname in WATER_RESNAMES or len(group) < 3 \
-                or all(is_metal_hetatm(line) for line in group):
+                or all(is_metal_hetatm(line) for line in group) \
+                or resname.upper() in MODIFIED_AA:
             continue
         result.append({'resname': resname, 'chain': chain, 'resseq': resseq,
                        'atoms': len(group), 'lines': group})
@@ -427,19 +472,25 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
             extracted = (stem, group)
             hetatms = sorted({line[17:20].strip() for line in lines
                               if line.startswith('HETATM')})
+        # everything the user must be told about: which non-standard residues
+        # (waters, ions, cofactors, modified amino acids, ligands) were kept
+        # and which were dropped — standard amino acids are never listed
+        before = nonstandard_counts(lines)
         if drop_hetatm:
-            kept = sorted({line[17:20].strip() for line in lines
-                           if line.startswith('HETATM') and keep_metals
-                           and is_metal_hetatm(line)})
+            # modified amino acids are the polymer, not a heterogen — they
+            # survive every stripping mode
             lines = [line for line in lines if not line.startswith('HETATM')
+                     or is_modified_residue(line)
                      or (keep_metals and is_metal_hetatm(line))]
-            dropped = sorted(set(hetatms) - set(kept))
-            if dropped:
-                state['warnings'].append('Receptor HETATM dropped: ' + ', '.join(dropped))
-            if kept:
-                state['warnings'].append('metal ions kept under --drop_hetatm: ' + ', '.join(kept))
-        elif hetatms:
-            state['warnings'].append('Receptor HETATM residues kept: ' + ', '.join(hetatms))
+        kept_residues = nonstandard_counts(lines)
+        dropped_residues = {name: n for name, n in before.items()
+                            if name not in kept_residues}
+        if kept_residues:
+            state['warnings'].append('Receptor non-standard residues kept: '
+                                     + format_counts(kept_residues))
+        if dropped_residues:
+            state['warnings'].append('Receptor non-standard residues dropped: '
+                                     + format_counts(dropped_residues))
         if not any(line.startswith('ATOM  ') for line in lines):
             raise ValueError('receptor has no ATOM records')
         prepared_rec = stage / (receptor.stem + '.pdbt')
@@ -517,6 +568,8 @@ def stage_prepare(run_dir, receptor, ligand, obabel_vinardock,
             raise ValueError('no ligands prepared')
         state['metrics'] = {'n_ligands': len(names), 'ligands': sorted(names),
                             'receptor_chains': chains, 'hetatm_resnames': hetatms,
+                            'residues_kept': kept_residues,
+                            'residues_dropped': dropped_residues,
                             'ligand_from_receptor': extracted[0] if extracted else None,
                             'receptor_file': prepared_rec.name,
                             'autobox_file': ref_out.name if ref_out
@@ -1074,6 +1127,14 @@ def stage_analyse(run_dir, pose=1, threads=1, tools_dir=TOOLS, timeout=600):
         rec_fallback = Path(run.get('receptor_path',
                                     root / 'prep' / run.get('receptor_file', 'receptor.pdbt')))
         lines = ['# Docking report', ''] + provenance(install, run, root)
+        prep_metrics = (read_status(root, 'prepare') or {}).get('metrics') or {}
+        if 'residues_kept' in prep_metrics or 'residues_dropped' in prep_metrics:
+            lines += ['## Receptor residues', '',
+                      'Non-standard residues in the prepared receptor (standard amino acids omitted):',
+                      '',
+                      '- kept: ' + (format_counts(prep_metrics.get('residues_kept') or {}) or 'none'),
+                      '- dropped: ' + (format_counts(prep_metrics.get('residues_dropped') or {}) or 'none'),
+                      '']
         lines += ['## Ligands', '', '| Ligand | Best score (kcal/mol) | Conformers | Analysed pose |',
                   '|---|---:|---:|---:|']
         ok = {n: i for n, i in run['per_ligand'].items() if i.get('status') != 'failed'}

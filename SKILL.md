@@ -53,9 +53,13 @@ Hard rules:
    Each stage is gated on its `status.json`; do not perform these gates
    by judgment.
 4. **Result** — present `<run_dir>/report.md` only if the workflow exits
-   successfully. Relay any `warnings` from the stage status files
-   (positive scores, poses outside the box, zero interactions, failed
-   ligands) — they flag suspect science, not script bugs.
+   successfully. Always tell the user which receptor residues were kept
+   and which were dropped (`Receptor non-standard residues kept/dropped`
+   — the "Receptor residues" section of report.md), since those are the
+   non-standard residues other than the 20 standard amino acids. Relay
+   any other `warnings` from the stage status files (positive scores,
+   poses outside the box, zero interactions, failed ligands) — they flag
+   suspect science, not script bugs.
 5. **Failure / resume** — report the stage error + log tail printed by
    the workflow. On an input/conversion failure, do not start inspecting
    the file: ask the user whether they want help fixing it, and only

@@ -41,6 +41,20 @@ linux-amd64 static binaries.
   atoms + `TORSDOF`, log.csv headers are matched by name, PLIP output is
   verified by binding-site identity. Prefer adding a structural check
   over adding a hash.
+- `references/modified_aa.txt` is the list of modified amino-acid
+  residue names (3-letter PDB codes) that are the polypeptide chain even
+  when the file marks them HETATM. `is_modified_residue` keeps them under
+  `--drop_hetatm` and `hetatm_groups` excludes them from dockable
+  ligands, so they are never stripped or extracted. It is generated from
+  the cctbx CCD peptide list (`iotbx/pdb/modified_aa_names.h`) plus
+  SEC/PYL/CRO/LYZ; a residue absent from it is treated as a heterogen —
+  extend the file rather than special-casing names in code.
+- `prepare` always reports the receptor's non-standard residues (every
+  residue but the 20 standard amino acids, ATOM or HETATM alike) as
+  `Receptor non-standard residues kept/dropped` warnings plus
+  `metrics.residues_kept`/`residues_dropped` ({resname: count}); `analyse`
+  repeats them as a "Receptor residues" section in `report.md`. Keep all
+  three in sync when touching that reporting.
 - `prepare` names prepared files after the input stem: receptor
   `<stem>.pdbt`, autobox reference `<stem>_autobox.pdbt`, ligands
   `ligands/<stem>.pdbt`. `--ligand_from_receptor` extracts a co-crystal

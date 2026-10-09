@@ -120,6 +120,62 @@ class PrepareHelperTests(unittest.TestCase):
             pipe.strip_source_remark(pdbt)
             self.assertNotIn('REMARK  Name', pdbt.read_text())
 
+    def test_stage_prepare_keeps_modified_residues(self):
+        # a modified amino acid marked HETATM (MSE) is the polymer, not a
+        # heterogen: --drop_hetatm must strip waters/ligands but never it
+        pipe = module('pipeline')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            obabel = root / 'obabel-vinardock'
+            obabel.write_text('#!/bin/sh\nexit 0\n')
+            obabel.chmod(0o755)
+            receptor = root / 'rec.pdbt'
+            receptor.write_text('\n'.join([
+                atom(0, 0, 0, kind='ATOM  ', name='CA', resname='ALA', resseq=1),
+                atom(1, 1, 1, kind='HETATM', name='N', resname='MSE', resseq=2),
+                atom(1, 1, 1, kind='HETATM', name='CA', resname='MSE', resseq=2),
+                atom(1, 1, 1, kind='HETATM', name='C', resname='MSE', resseq=2),
+                atom(1, 1, 1, kind='HETATM', name='O', resname='MSE', resseq=2),
+                atom(9, 9, 9, kind='HETATM', name='O', resname='HOH', resseq=100),
+                atom(8, 8, 8, kind='HETATM', name='C1', resname='LIG', resseq=200),
+                atom(8, 8, 8, kind='HETATM', name='O1', resname='LIG', resseq=200),
+                atom(8, 8, 8, kind='HETATM', name='N1', resname='LIG', resseq=200),
+            ]) + '\n')
+            ligand = root / 'lig.pdbt'
+            ligand.write_text(atom(5, 5, 5, name='C1', resname='LIG') + '\n' +
+                              atom(5, 5, 5, name='O1', resname='LIG') + '\nTORSDOF 1\n')
+            run = root / 'run'
+            code = pipe.stage_prepare(run_dir=run, receptor=receptor, ligand=[ligand],
+                                      obabel_vinardock=obabel, drop_hetatm=True)
+            self.assertEqual(code, 0)
+            prepared = (run / 'prep/rec.pdbt').read_text()
+            self.assertIn('MSE', prepared)      # modified residue survives
+            self.assertNotIn('HOH', prepared)   # water dropped
+            self.assertNotIn('LIG', prepared)   # co-crystal ligand dropped
+            state = json.loads((run / 'prep/status.json').read_text())
+            # the user is told what was kept and what was dropped, by name + count
+            self.assertIn('Receptor non-standard residues kept: MSE x1',
+                          state['warnings'])
+            self.assertIn('Receptor non-standard residues dropped: HOH x1, LIG x1',
+                          state['warnings'])
+            self.assertEqual(state['metrics']['residues_kept'], {'MSE': 1})
+            self.assertEqual(state['metrics']['residues_dropped'], {'HOH': 1, 'LIG': 1})
+
+    def test_nonstandard_counts(self):
+        pipe = module('pipeline')
+        lines = [atom(0, 0, 0, kind='ATOM  ', name='CA', resname='ALA', resseq=1),
+                 atom(0, 0, 0, kind='ATOM  ', name='CA', resname='MSE', resseq=2),
+                 atom(0, 0, 0, kind='ATOM  ', name='CA', resname='MSE', resseq=3),
+                 atom(0, 0, 0, kind='HETATM', name='O', resname='HOH', resseq=100),
+                 atom(0, 0, 0, kind='HETATM', name='ZN', resname='ZN', resseq=101)]
+        # standard amino acids are excluded; a modified residue written as
+        # ATOM (not HETATM) still counts as non-standard and is reported
+        self.assertEqual(pipe.nonstandard_counts(lines),
+                         {'MSE': 2, 'HOH': 1, 'ZN': 1})
+        self.assertEqual(pipe.residue_counts(lines)['ALA'], 1)
+        self.assertEqual(pipe.format_counts({'MSE': 2, 'ZN': 1}), 'MSE x2, ZN x1')
+        self.assertEqual(pipe.format_counts({}), '')
+
 
 class DockHelperTests(unittest.TestCase):
     def test_model_data(self):
@@ -324,6 +380,19 @@ class AnalyseHelperTests(unittest.TestCase):
         self.assertFalse(pipe.is_metal_hetatm(
             atom(0, 0, 0, kind='HETATM', name='O', resname='HOH', element='')))
 
+    def test_is_modified_residue(self):
+        pipe = module('pipeline')
+        self.assertTrue(pipe.is_modified_residue(
+            atom(0, 0, 0, kind='HETATM', name='CA', resname='MSE', element='C')))
+        self.assertTrue(pipe.is_modified_residue(
+            atom(0, 0, 0, kind='HETATM', name='CA', resname='SEP', element='C')))
+        self.assertTrue(pipe.is_modified_residue(
+            atom(0, 0, 0, kind='HETATM', name='CA', resname='SEC', element='C')))
+        self.assertFalse(pipe.is_modified_residue(
+            atom(0, 0, 0, kind='HETATM', name='C1', resname='LIG', element='C')))
+        self.assertFalse(pipe.is_modified_residue(
+            atom(0, 0, 0, kind='HETATM', name='O', resname='HOH', element='O')))
+
     def test_hetatm_groups_and_pick(self):
         pipe = module('pipeline')
         lines = [atom(0, 0, 0, kind='HETATM', name='O', resname='HOH',
@@ -332,6 +401,14 @@ class AnalyseHelperTests(unittest.TestCase):
                       resseq=101, element='ZN'),
                  atom(0, 0, 0, kind='HETATM', name='NA', resname='NA',
                       resseq=102, element='NA'),
+                 atom(3, 3, 3, kind='HETATM', name='N', resname='MSE',
+                      resseq=42, element='N'),
+                 atom(3, 3, 3, kind='HETATM', name='CA', resname='MSE',
+                      resseq=42, element='C'),
+                 atom(3, 3, 3, kind='HETATM', name='C', resname='MSE',
+                      resseq=42, element='C'),
+                 atom(3, 3, 3, kind='HETATM', name='O', resname='MSE',
+                      resseq=42, element='O'),
                  atom(0, 0, 0, kind='HETATM', name='C1', resname='LIG',
                       resseq=301, element='C'),
                  atom(1, 1, 1, kind='HETATM', name='O1', resname='LIG',
@@ -339,7 +416,8 @@ class AnalyseHelperTests(unittest.TestCase):
                  atom(2, 2, 2, kind='HETATM', name='N1', resname='LIG',
                       resseq=301, element='N')]
         groups = pipe.hetatm_groups(lines)
-        # water, metal ion and the <3-atom groups are not candidates
+        # water, metal ion, the <3-atom groups and modified residues
+        # (MSE is the polymer, not a ligand) are not candidates
         self.assertEqual([(g['resname'], g['atoms']) for g in groups],
                          [('LIG', 3)])
         self.assertEqual(pipe.pick_hetatm(groups, 'LIG')['resseq'], '301')
@@ -756,6 +834,7 @@ class IntegrationTests(unittest.TestCase):
                 self.run_cli('analyse', '--run_dir', str(root), '--tools_dir', str(self.TOOLS))
                 report = (root / 'report.md').read_text()
                 self.assertIn('Docking report', report)
+                self.assertIn('## Receptor residues', report)
                 self.assertTrue(list((root / 'analysis').glob('*_report.xml')))
 
 

@@ -14,6 +14,9 @@ question pass — scripts never ask questions.
      metals (`--drop_hetatm` alone). Ask directly — do not read the
      receptor to enumerate the residues. Prepare reports the residue
      names kept or dropped in its warnings/metrics.
+     Modified amino acids (MSE, SEP, TPO, …) are the polymer even when
+     marked HETATM: they are kept under every choice (never stripped,
+     never offered by `scan`), so no answer can delete them.
 2. **Ligands** — exactly one source:
    - structure files (`.pdbt`, `.sdf`, `.mol2`, `.pdb`) via
      `--prepare_ligand`, or

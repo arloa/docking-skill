@@ -33,7 +33,9 @@ each can also be invoked standalone.
     <name>_report.xml / <name>_report.txt / <name>_plip.log
     # PLIP intermediates (<name>_complex_protonated.pdb, plipfixed.*)
     # are deleted after the PLIP workers finish
-  report.md            # written by analyse, header = provenance block
+  report.md            # written by analyse: provenance, then a
+                       # "Receptor residues" kept/dropped summary from
+                       # prep metrics (when present), then results
 ```
 
 Input files are **not copied** into the run dir; stage scripts read them
@@ -63,9 +65,12 @@ Exit codes (all subcommands): `0` = ok, `1` = stage/run failure
 ### Per-stage metrics
 
 **prepare** — `n_ligands`, `ligands` (sorted names), `receptor_chains`,
-`hetatm_resnames`, `ligand_from_receptor` (stem of the extracted
-co-crystal ligand, or null), `receptor_file` / `autobox_file`
-(filenames in `prep/`).
+`hetatm_resnames`, `residues_kept` / `residues_dropped` ({resname:
+count} for every residue other than the 20 standard amino acids — what
+the user must be told was retained vs stripped; counts are distinct
+chain+resseq residues, ATOM and HETATM alike), `ligand_from_receptor`
+(stem of the extracted co-crystal ligand, or null), `receptor_file` /
+`autobox_file` (filenames in `prep/`).
 
 **dock** — `recipe` (recipe name), `config` (`--config` file stem or
 null), `seed`, `threads`, `resolved_box`
@@ -108,7 +113,10 @@ Corruption/bad output is caught by *structural* checks, not hashes:
   must contain atoms and a `TORSDOF` record; 2D inputs get `--gen3d`.
   The autobox reference follows the same rules and must be exactly
   one molecule (`.pdbt`/`.smi`/`.sdf`/`.mol2`/`.pdb`); SMILES
-  references always get `--gen3d`.
+  references always get `--gen3d`. Modified amino acids listed in
+  `references/modified_aa.txt` are never stripped under `--drop_hetatm`
+  (they are the polymer, not a heterogen) and never appear as
+  `scan`/`--ligand_from_receptor` candidates.
 - dock: `log.csv` header recognized, score column matched by content
   (`vinardo score …`, `E_corrected`, `binding_energy`, …) and
   cross-checked against pdbt model energies (fail on divergence
