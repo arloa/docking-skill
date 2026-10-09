@@ -23,6 +23,7 @@
 - `rescore` (`--score_only`) evaluates the ligand *as supplied* — it needs an already-posed ligand inside the box (e.g. a `.pdbt` from a previous dock run). A freshly `--gen3d`-generated structure placed arbitrarily is not a docked pose; rescoring it is almost always a box-outside failure or a meaningless number.
 - Inputs are not re-checked on resume: editing a receptor/ligand file in place is not detected. Use a new run dir (or `--force`) after changing inputs, recipe, or settings.
 - Use `obabel-vinardock` exclusively for CLI conversion; PLIP uses Python `openbabel` bindings separately, possibly of a different version.
+- Prefer a fully static `obabel-vinardock` build (`ldd` must print `not a dynamic executable`); the downloaded `-ubuntu22.04` fallback needs system `libopenbabel.so.7` and fails the launch test without it. Install a static build with `--obabel-vinardock <path>`.
 - Do not interpret a PLIP zero exit code as a successful ligand analysis: validate an expected ligand binding site in XML.
 - On flex runs, use the modified receptor output for the complex instead of the unmodified prep receptor when available.
 - Probe searches only PATH and the invocation's working directory (plus the existing tools install target), never guessed source directories. Binaries that exist but cannot launch are listed under `unusable` with the error — check it before concluding a tool is absent.

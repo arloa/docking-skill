@@ -55,8 +55,12 @@ python3 "<skill_dir>/scripts/setup.py" install \
   `obabel-vinardock` ≥2.38), and the launch smoke test picks the winner
   — if neither launches, install fails rather than leaving a broken
   tool. Caveat: the ubuntu22.04 obabel-vinardock needs
-  `libopenbabel.so.7` (Open Babel 3.1.1 installed); without it, use an
-  approved local build. `param/` is fetched from pinned commit `11caaa8`
+  `libopenbabel.so.7` (Open Babel 3.1.1 installed). The cleanest fix is
+  a **fully static local build** — verify with `ldd` (should print
+  `not a dynamic executable`) and install it via
+  `--obabel-vinardock <path>`; the reference install uses
+  `/usr/local/openbabel-master/build-static/bin/obabel` (Open Babel
+  3.1.1 static). `param/` is fetched from pinned commit `11caaa8`
   with per-file sha256 (the `v1.0.0` tag predates the parameter files).
 - PLIP → `uv venv --python <invoking Python> <tools_dir>/plip-venv` +
   pinned deps including the self-contained `openbabel` 3.2.1 wheel —
